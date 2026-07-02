@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OKX Fast API 接入 Demo</title>
+  <!--
+    OKX Web OpenSDK（授权跳转用）。海外站点用 static.okx.com，国内可换 static.coinall.ltd。
+    引入成功后存在全局对象 window.OKEXOAuthSDK。
+  -->
+  <script src="https://static.okx.com/cdn/assets/okfe/libs/okxOAuth/index.js"></script>
+  <style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #1f2329; }
+    h1 { font-size: 20px; }
+    .step { border: 1px solid #e5e6eb; border-radius: 8px; padding: 16px; margin: 12px 0; }
+    button { background: #1f6feb; color: #fff; border: 0; border-radius: 6px; padding: 10px 16px; font-size: 14px; cursor: pointer; }
+    button:disabled { background: #b8c0cc; cursor: not-allowed; }
+    pre { background: #f7f8fa; border-radius: 6px; padding: 12px; overflow: auto; font-size: 12px; }
+    .tag { display: inline-block; background: #eaf2ff; color: #1f6feb; border-radius: 4px; padding: 2px 8px; font-size: 12px; }
+    #log { background: #0d1117; color: #c9d1d9; border-radius: 6px; padding: 12px; font-size: 12px; min-height: 80px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>OKX Fast API 接入 Demo <span class="tag" id="mode">…</span></h1>
+  <p>演示完整链路：<b>授权(scope=fast_api)</b> → 后端换 token → 删/建 API Key → 用 API Key 查账户余额。</p>
+
+  <div class="step">
+    <h3>① 用户授权并连接</h3>
+    <p>点击后跳转 OKX 授权页；授权完成回跳本页，前端会把 <code>code</code> 交给后端创建 API Key。</p>
+    <button id="btn-auth">授权并连接 OKX</button>
+    <pre id="connect-result" hidden></pre>
+  </div>
+
+  <div class="step">
+    <h3>② 查询账户余额（示例业务接口）</h3>
+    <p>用后端已存的 API Key 做 OKX 标准签名，调用 <code>GET /api/v5/account/balance</code>。</p>
+    <button id="btn-balance" disabled>查询余额</button>
+    <pre id="balance-result" hidden></pre>
+  </div>
+
+  <div class="step">
+    <h3>运行日志</h3>
+    <div id="log"></div>
+  </div>
+
+<script>
+const log = (m) => { document.getElementById('log').textContent += `\n${m}`; };
+const show = (id, obj) => { const el = document.getElementById(id); el.hidden = false; el.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2); };
+
+let CONFIG = {};
+
+async function init() {
+  // 1) 读取后端公开配置（client_id / redirect_uri / scope）
+  CONFIG = await (await fetch('/config')).json();
+  document.getElementById('mode').textContent = (CONFIG.mock ? 'MOCK · ' : '') + (CONFIG.simulated ? '模拟盘' : '实盘');
+  log(`配置已加载：client_id=${CONFIG.client_id || '(未配置)'} scope=${CONFIG.scope}`);
+
+  // 2) 初始化 SDK
+  // 注意：requestUrl 这里写死全球站。本 demo 仅演示全球站(www.okx.com)发起授权；
+  //       若要支持土耳其(tr.okx.com)/EEA 等多站点，需把 requestUrl 也按站点参数化，
+  //       不能只在后端处理回跳 domain。
+  if (window.OKEXOAuthSDK) {
+    OKEXOAuthSDK.init({ requestUrl: 'https://www.okx.com', onInit: () => log('OKEXOAuthSDK 初始化成功') });
+  } else {
+    log('⚠️ OKEXOAuthSDK 未加载，请检查 CDN 是否可访问');
+  }
+
+  // 3) 如果当前是“授权回跳”（URL 带 code），自动走连接流程
+  const params = new URLSearchParams(location.search);
+  const code = params.get('code');
+  if (code) {
+    const state = params.get('state');
+    const domain = params.get('domain');
+    const savedState = sessionStorage.getItem('oauth_state');
+    log(`检测到授权回跳：code=${code.slice(0, 8)}… state=${state} domain=${domain || '(默认)'}`);
+
+    // 防 CSRF：回跳 state 必须等于发起时保存的 state
+    if (!savedState || savedState !== state) {
+      log('❌ state 校验失败，已忽略该回跳（可能是 CSRF）');
+      return;
+    }
+    sessionStorage.removeItem('oauth_state');
+    history.replaceState({}, '', location.pathname);  // 清掉 URL 上的 code
+    await runConnect(code, domain);
+  }
+}
+
+// 把 code 交给后端创建 API Key（回跳路径与 MOCK 路径共用）
+async function runConnect(code, domain) {
+  log('→ 调用后端 /api/connect 创建 API Key …');
+  const res = await (await fetch('/api/connect', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, domain }),
+  })).json();
+  show('connect-result', res);
+  if (res.ok) {
+    log(`✅ 已连接，API Key=${res.api_key_masked}（权限 ${res.perm}）`);
+    document.getElementById('btn-balance').disabled = false;
+  } else {
+    log(`❌ 连接失败（${res.step || ''}），详情见上方`);
+  }
+}
+
+// ① 发起授权
+document.getElementById('btn-auth').addEventListener('click', () => {
+  // MOCK 模式：没有真实 OAuth 回跳，用假 code 直接走后端流程，便于无凭证本地一键演示
+  if (CONFIG.mock) {
+    log('MOCK 模式：跳过真实授权，用假 code 直接连接 …');
+    runConnect('mock-code', null);
+    return;
+  }
+  if (!window.OKEXOAuthSDK) return log('SDK 未加载');
+  const state = OKEXOAuthSDK.generateState();         // 随机 state，防 CSRF
+  sessionStorage.setItem('oauth_state', state);
+  log(`发起授权：state=${state}，即将跳转 OKX 授权页 …`);
+  OKEXOAuthSDK.authorize({
+    response_type: 'code',
+    access_type: 'offline',                           // Fast API 走授权码模式
+    client_id: CONFIG.client_id,
+    // 按 OKX 官方文档示例保留 encodeURIComponent，未经真机验证。
+    // 自查：跳转后若授权页报 redirect_uri 不匹配 / 回跳丢失，打开浏览器 Network
+    //   看实际跳转 URL 里的 redirect_uri= 值——若出现 %253A（即 %3A 又被编码一次），
+    //   说明 SDK 内部又 encode 了一次（双重编码），把下面这行改成直接传 CONFIG.redirect_uri。
+    redirect_uri: encodeURIComponent(CONFIG.redirect_uri),
+    scope: CONFIG.scope,                              // 'fast_api'
+    state,
+  });
+});
+
+// ② 查询余额
+document.getElementById('btn-balance').addEventListener('click', async () => {
+  log('→ 调用后端 /api/balance（后端用 API Key 签名请求 OKX）…');
+  const res = await (await fetch('/api/balance')).json();
+  show('balance-result', res);
+  log(res.ok ? '✅ 查询成功' : '❌ 查询失败，详情见上方');
+});
+
+init();
+</script>
+</body>
+</html>
