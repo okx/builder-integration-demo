@@ -17,6 +17,7 @@ okx_client.py — OKX Fast API 接入所需的全部 HTTP 调用与签名逻辑�
 import base64
 import hashlib
 import hmac
+import json
 import os
 from datetime import datetime, timezone
 
@@ -31,10 +32,11 @@ def _mock_enabled() -> bool:
     return os.environ.get("MOCK", "") == "1"
 
 # ---- OKX 标准 API 路径（已与开发者文档核对）----
-PATH_OAUTH_TOKEN  = "/api/v5/users/oauth/token"          # 换取 access_token（授权码模式）
+PATH_OAUTH_TOKEN  = "/v5/users/oauth/token"              # 换取 access_token（授权码模式）；真机联调确认此环境用 /v5/... （/api/v5/... 会 404）
 PATH_OAUTH_DELETE = "/api/v5/users/oauth/delete-apikey"  # 删除 Fast API Key
 PATH_OAUTH_APIKEY = "/api/v5/users/oauth/apikey"         # 创建 Fast API Key
 PATH_ACCOUNT_BAL  = "/api/v5/account/balance"            # 示例业务接口：查询账户余额
+PATH_TRADE_ORDER  = "/api/v5/trade/order"                # 示例业务接口（写）：下单
 # 注：开发者文档 “REST API > 获取令牌” 段落写的是 /v5/users/oauth/token，
 #     而 changelog 与 删/建 Key 接口均为 /api/v5/...。这里与后两者保持一致（默认值）。
 #     若联调换 token 时报 404，把上面 PATH_OAUTH_TOKEN 改成 "/v5/users/oauth/token" 再试。
@@ -120,6 +122,22 @@ def _mock_balance(ccy: str = None) -> dict:
     }
 
 
+def _mock_order(tag: str = "") -> dict:
+    # 贴合 POST /api/v5/trade/order 真实返回结构；ordId 为假占位，不产生真实订单。
+    # tag 原样回显，便于在无真金环境验证 BrokerCode 是否随请求传达。
+    return {
+        "code": "0",
+        "msg": "",
+        "data": [{
+            "clOrdId": "",
+            "ordId": "mock-ord-0000111122223333",
+            "tag": tag or "",
+            "sCode": "0",
+            "sMsg": "",
+        }],
+    }
+
+
 # ============ 1) OAuth / Fast API 管理接口（Bearer 鉴权） ============
 
 def exchange_token(base_url: str, client_id: str, client_secret: str, code: str) -> dict:
@@ -201,4 +219,44 @@ def get_account_balance(base_url: str, api_key: str, secret_key: str, passphrase
     #    query（如 ?ccy=BTC）必须与上面签名用的 request_path 逐字一致，
     #    否则 requests 自行拼接/编码会导致签名串不匹配 → 签名校验失败(如 50113)。
     resp = requests.get(base_url + request_path, headers=headers, timeout=10)
+    return _parse(resp)
+
+
+def place_order(base_url: str, api_key: str, secret_key: str, passphrase: str,
+                inst_id: str, td_mode: str, side: str, ord_type: str, sz: str,
+                px: str = None, tag: str = None, simulated: bool = True) -> dict:
+    """
+    示例业务接口（写操作）：POST /api/v5/trade/order 下单（权限：trade）。
+    参数字段与 OKX 文档「下单」请求示例一致：
+      instId 产品ID / tdMode 交易模式(现货 cash) / side buy|sell / ordType limit|market / sz 数量
+      px 委托价（限价单必填，市价单不传）。
+    tag: 经纪商返佣归属标识（BrokerCode，1-16 位字母数字）。OAuth broker 必须在下单时把
+         BrokerCode 填入 tag，否则订单不计入经纪商返佣（见 OKX broker 文档「OAuth 返佣设置」）。
+    ⚠️ simulated=False（实盘）会用真实资金真实成交，务必先在模拟盘验证。
+    """
+    if _mock_enabled():
+        return _mock_order(tag)
+    method = "POST"
+    request_path = PATH_TRADE_ORDER
+    body_obj = {"instId": inst_id, "tdMode": td_mode, "side": side,
+                "ordType": ord_type, "sz": sz}
+    if px not in (None, ""):
+        body_obj["px"] = px
+    if tag not in (None, ""):
+        body_obj["tag"] = tag   # BrokerCode → 返佣归属；被拒订单响应通常也会原样回显该 tag
+    # 用同一个字符串既参与签名、又作为请求体发送，保证逐字一致
+    body = json.dumps(body_obj)
+    ts = _now_iso_ms()
+    headers = {
+        "OK-ACCESS-KEY": api_key,
+        "OK-ACCESS-SIGN": _sign(secret_key, ts, method, request_path, body),
+        "OK-ACCESS-TIMESTAMP": ts,
+        "OK-ACCESS-PASSPHRASE": passphrase,
+        "Content-Type": "application/json",
+    }
+    if simulated:
+        headers["x-simulated-trading"] = "1"
+    # ⚠️ 必须用 data=body 发送与签名完全相同的字符串；不要用 json=body_obj，
+    #    否则 requests 会重新序列化（分隔符/编码可能不同）导致签名不匹配（50113）。
+    resp = requests.post(base_url + request_path, headers=headers, data=body, timeout=10)
     return _parse(resp)

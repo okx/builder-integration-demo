@@ -13,6 +13,8 @@
 ```
 okx-fastapi-broker-demo/
 ├── README.md              ← 你在这里（人看的快速上手）
+├── docs/
+│   └── AI-Builder-接入指南.md ← 面向外部 AI Builder 的接入指南（鉴权前后端改造 + 按场景下单 demo + 反佣 tag）
 ├── 接入指南.md            ← 接入指南（给人读的中文说明）
 ├── INTEGRATION_GUIDE.md   ← 语言中立接入规范（AI / 开发者主要读这份）
 ├── SIGNING.md             ← HMAC 签名多语言片段（Python / JS）+ 验证向量
@@ -68,7 +70,7 @@ python backend/app.py
 | 文档 | 受众 | 用途 |
 |---|---|---|
 | `README.md` | 人（接入方） | 快速上手、运行与目录导航（你在这里） |
-| `接入指南.md` | 人（接入方） | 中文接入指南，含申请等人工步骤 |
+| `AI-Builder-接入指南.md` | 外部 AI Builder 接入方（人读） | 把鉴权（前后端改造）与下单（按场景 demo，含反佣 BrokerCode tag）集成到你自己的服务 |
 | `INTEGRATION_GUIDE.md` | AI / 开发者 | 语言中立的精确接入规范（改写到其它技术栈时主要读这份） |
 | `SIGNING.md` | AI / 开发者 | HMAC 签名多语言片段（Python / JS）+ known-answer 验证向量 |
 | `AGENTS.md` | AI 编程助手 | 帮用户接入时必须遵守的规则与易踩坑 |

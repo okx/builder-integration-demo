@@ -39,6 +39,22 @@
   </div>
 
   <div class="step">
+    <h3>③ 下单 / 验证 BrokerCode tag（写操作，需 trade 权限）</h3>
+    <p>调用后端 <code>POST /api/order</code> → <code>/api/v5/trade/order</code>，服务端自动把 BrokerCode 填入 <code>tag</code>（返佣归属标识）。</p>
+    <p>tag（BrokerCode，服务端配置）：<code id="ord-tag">…</code></p>
+    <p>🧪 <b>验证模式</b>：默认 <code>sz</code> 是一个<b>低于最小下单量</b>的超小值 → 下单会被 OKX <b>拒绝</b>（不产生订单、不成交、不占资金），但仍能验证：① 接口/签名打通（返回单条业务错误码而非鉴权错）；② <code>tag</code> 已随请求上送（对比响应里 <code>sent_tag</code> 与 <code>data[0].tag</code> 回显）。</p>
+    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
+      <input id="ord-inst" placeholder="instId" value="BTC-USDT" style="padding:8px; border:1px solid #e5e6eb; border-radius:6px;" />
+      <select id="ord-side" style="padding:8px; border:1px solid #e5e6eb; border-radius:6px;"><option value="buy">buy</option><option value="sell">sell</option></select>
+      <select id="ord-type" style="padding:8px; border:1px solid #e5e6eb; border-radius:6px;"><option value="limit">limit</option><option value="market">market</option></select>
+      <input id="ord-px" placeholder="px（限价必填）" value="1000" style="padding:8px; border:1px solid #e5e6eb; border-radius:6px; width:120px;" />
+      <input id="ord-sz" placeholder="sz 数量（默认超小→必被拒）" value="0.00000001" style="padding:8px; border:1px solid #e5e6eb; border-radius:6px; width:180px;" />
+    </div>
+    <button id="btn-order" disabled>下单</button>
+    <pre id="order-result" hidden></pre>
+  </div>
+
+  <div class="step">
     <h3>运行日志</h3>
     <div id="log"></div>
   </div>
@@ -54,6 +70,8 @@ async function init() {
   CONFIG = await (await fetch('/config')).json();
   document.getElementById('mode').textContent = (CONFIG.mock ? 'MOCK · ' : '') + (CONFIG.simulated ? '模拟盘' : '实盘');
   log(`配置已加载：client_id=${CONFIG.client_id || '(未配置)'} scope=${CONFIG.scope}`);
+  const tagEl = document.getElementById('ord-tag');
+  if (tagEl) tagEl.textContent = CONFIG.broker_code || '(未配置 BROKER_CODE → 下单不带 tag)';
 
   // 2) 初始化 SDK
   // 注意：requestUrl 这里写死全球站。本 demo 仅演示全球站(www.okx.com)发起授权；
@@ -71,15 +89,17 @@ async function init() {
   if (code) {
     const state = params.get('state');
     const domain = params.get('domain');
-    const savedState = sessionStorage.getItem('oauth_state');
+    const savedState = localStorage.getItem('oauth_state');
     log(`检测到授权回跳：code=${code.slice(0, 8)}… state=${state} domain=${domain || '(默认)'}`);
 
     // 防 CSRF：回跳 state 必须等于发起时保存的 state
     if (!savedState || savedState !== state) {
       log('❌ state 校验失败，已忽略该回跳（可能是 CSRF）');
+      // 失败也清掉 URL 上的旧 code，否则刷新会反复读到同一个旧回跳、重复失败（死循环）
+      history.replaceState({}, '', location.pathname);
       return;
     }
-    sessionStorage.removeItem('oauth_state');
+    localStorage.removeItem('oauth_state');
     history.replaceState({}, '', location.pathname);  // 清掉 URL 上的 code
     await runConnect(code, domain);
   }
@@ -96,6 +116,7 @@ async function runConnect(code, domain) {
   if (res.ok) {
     log(`✅ 已连接，API Key=${res.api_key_masked}（权限 ${res.perm}）`);
     document.getElementById('btn-balance').disabled = false;
+    document.getElementById('btn-order').disabled = false;
   } else {
     log(`❌ 连接失败（${res.step || ''}），详情见上方`);
   }
@@ -111,7 +132,8 @@ document.getElementById('btn-auth').addEventListener('click', () => {
   }
   if (!window.OKEXOAuthSDK) return log('SDK 未加载');
   const state = OKEXOAuthSDK.generateState();         // 随机 state，防 CSRF
-  sessionStorage.setItem('oauth_state', state);
+  // 用 localStorage（跨标签页共享、刷新不丢）；sessionStorage 按标签页隔离，回跳落到新标签页就取不到
+  localStorage.setItem('oauth_state', state);
   log(`发起授权：state=${state}，即将跳转 OKX 授权页 …`);
   OKEXOAuthSDK.authorize({
     response_type: 'code',
@@ -133,6 +155,43 @@ document.getElementById('btn-balance').addEventListener('click', async () => {
   const res = await (await fetch('/api/balance')).json();
   show('balance-result', res);
   log(res.ok ? '✅ 查询成功' : '❌ 查询失败，详情见上方');
+});
+
+// ③ 下单
+document.getElementById('btn-order').addEventListener('click', async () => {
+  const body = {
+    instId:  document.getElementById('ord-inst').value.trim(),
+    tdMode:  'cash',                                  // 现货；杠杆/合约需改 cross / isolated
+    side:    document.getElementById('ord-side').value,
+    ordType: document.getElementById('ord-type').value,
+    px:      document.getElementById('ord-px').value.trim(),
+    sz:      document.getElementById('ord-sz').value.trim(),
+  };
+  // 实盘：真实资金成交，下单前二次确认
+  if (!CONFIG.simulated && !CONFIG.mock &&
+      !confirm('⚠️ 当前是实盘，将用真实资金下单：\n\n' + JSON.stringify(body, null, 2) + '\n\n确认下单？')) {
+    return log('已取消下单');
+  }
+  const pxDesc = body.ordType === 'market' ? '市价' : body.px;
+  log(`→ 调用后端 /api/order 下单：${body.side} ${body.sz} ${body.instId} @ ${pxDesc} …`);
+  const res = await (await fetch('/api/order', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })).json();
+  show('order-result', res);
+  const d0 = res.raw && Array.isArray(res.raw.data) && res.raw.data[0] ? res.raw.data[0] : {};
+  const topCode = res.raw ? res.raw.code : '(无)';
+  const sent = res.sent_tag || '';
+  const echoed = d0.tag || '';
+  // 接口打通：请求已到达下单逻辑（返回单条结果 sCode）才算真正通过签名/鉴权
+  const gotOrderResp = d0.sCode !== undefined;
+  log(`接口打通：${gotOrderResp ? '✅ 是（已到下单逻辑，返回 sCode）' : `⚠️ 未返回单条结果（顶层 code=${topCode}，可能鉴权/参数错，见上方 raw）`}`);
+  log(`tag 上送：sent_tag=「${sent || '(空)'}」  回显 data[0].tag=「${echoed || '(空)'}」 → ${sent && sent === echoed ? '✅ 一致' : '⚠️ 未回显/不一致'}`);
+  if (gotOrderResp && d0.sCode !== '0') {
+    log(`下单被拒（符合预期，不成交）：sCode=${d0.sCode} sMsg=${d0.sMsg}`);
+  } else if (res.ok) {
+    log(`⚠️ 下单被接受（ordId=${d0.ordId}）——这不是"被拒"！若不想成交，尽快去 OKX 撤单`);
+  }
 });
 
 init();

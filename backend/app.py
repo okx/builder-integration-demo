@@ -37,6 +37,7 @@ MOCK              = os.environ.get("MOCK", "") == "1"              # MOCK=1：�
 APIKEY_PASSPHRASE = os.environ.get("APIKEY_PASSPHRASE", "")
 APIKEY_LABEL      = os.environ.get("APIKEY_LABEL", "demo")
 APIKEY_PERM       = os.environ.get("APIKEY_PERM", "read_only")     # 默认只读，安全
+BROKER_CODE       = os.environ.get("BROKER_CODE", "")              # 经纪商返佣归属标识；下单时填入 tag
 
 # OKX 合法域名白名单。回跳 URL 里的 domain 来自外部输入，必须校验后才能当 base_url，
 # 否则攻击者可诱导后端把 access_token / 请求发往任意服务器（SSRF / 凭证外泄）。
@@ -66,6 +67,7 @@ def config():
         "scope": SCOPE,
         "simulated": SIMULATED,
         "mock": MOCK,
+        "broker_code": BROKER_CODE,   # 公开信息（会随订单 tag 上送），非密钥
     })
 
 
@@ -101,7 +103,7 @@ def connect():
     # 3) 创建 Fast API Key
     created = okx.create_oauth_apikey(
         base, access_token, APIKEY_PASSPHRASE, APIKEY_LABEL,
-        perm=APIKEY_PERM, bind_app=False, simulated=SIMULATED,
+        perm=APIKEY_PERM, bind_app=True, simulated=SIMULATED,
     )
     if created.get("code") != "0" or not created.get("data"):
         return jsonify({"ok": False, "step": "create_apikey",
@@ -138,6 +140,35 @@ def balance():
     )
     # 余额是用户自己的数据，这里整体返回便于 demo 展示；生产按需做字段白名单。
     return jsonify({"ok": res.get("code") == "0", "raw": res})
+
+
+@app.post("/api/order")
+def order():
+    """
+    用当前 session 已存的 API Key 签名下单（示例写操作）。
+    ⚠️ 需要 trade 权限的 Key；实盘（SIMULATED=0）会用真实资金真实成交。
+    """
+    creds = _CREDS.get(request.cookies.get("demo_sid", ""))
+    if not creds:
+        return jsonify({"ok": False, "error": "not connected yet"}), 400
+    data = request.get_json(force=True) or {}
+    inst_id  = data.get("instId")
+    td_mode  = data.get("tdMode") or "cash"
+    side     = data.get("side")
+    ord_type = data.get("ordType") or "limit"
+    sz       = data.get("sz")
+    px       = data.get("px")
+    if not (inst_id and side and sz):
+        return jsonify({"ok": False, "error": "missing instId/side/sz"}), 400
+    if ord_type == "limit" and not px:
+        return jsonify({"ok": False, "error": "limit order requires px"}), 400
+    # tag=BrokerCode 从服务端配置注入（生产同理：经纪商对每一单都打上归属标识）
+    res = okx.place_order(
+        creds["base"], creds["api_key"], creds["secret_key"], creds["passphrase"],
+        inst_id, td_mode, side, ord_type, sz, px=px, tag=BROKER_CODE, simulated=SIMULATED,
+    )
+    # sent_tag：本次实际上送的 BrokerCode；对比 raw.data[0].tag 的回显即可确认 tag 是否打上
+    return jsonify({"ok": res.get("code") == "0", "sent_tag": BROKER_CODE, "raw": res})
 
 
 if __name__ == "__main__":
