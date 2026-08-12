@@ -22,11 +22,12 @@ def _set_common_env(monkeypatch, ai_builder_code="ABCD1234", simulated="1",
     else:
         monkeypatch.setenv("MOCK", mock)
     if ai_builder_code is None:
-        # Keep local .env values from leaking into tests after app.load_dotenv().
+        # Keep local environment values from leaking into tests.
         monkeypatch.setenv("AI_BUILDER_CODE", "")
     else:
         monkeypatch.setenv("AI_BUILDER_CODE", ai_builder_code)
     monkeypatch.setenv("SIMULATED", simulated)
+    monkeypatch.setenv("SCOPE", "wrong_scope_should_be_ignored")
     monkeypatch.setenv("APIKEY_PERM", api_key_perm)
     monkeypatch.setenv("OKX_BASE_URL", "https://www.okx.com")
     monkeypatch.setenv("CLIENT_ID", "")
@@ -92,6 +93,7 @@ def test_config_reports_mock(client):
     assert cfg["mock"] is True
     assert cfg["simulated"] is True
     assert cfg["okx_base_url"] == "https://www.okx.com"
+    assert cfg["scope"] == "fast_api"
     assert cfg["ai_builder_code"] == "ABCD1234"
 
 
@@ -254,11 +256,44 @@ def test_connect_accepts_allowlisted_callback_domain_with_trailing_slash(client)
     assert body["ok"] is True
 
 
+def test_failed_reconnect_clears_old_session_credentials(client, monkeypatch):
+    connect = client.post("/api/connect", json={"code": "mock-code"})
+    assert connect.status_code == 200
+    assert client.get("/api/balance").status_code == 200
+
+    import app as app_module
+
+    monkeypatch.setattr(
+        app_module.okx,
+        "exchange_token",
+        lambda *args, **kwargs: {"code": "bad_code", "msg": "invalid code"},
+    )
+
+    reconnect = client.post("/api/connect", json={"code": "bad-code"})
+    body = reconnect.get_json()
+    assert reconnect.status_code == 400
+    assert body["ok"] is False
+    assert body["step"] == "exchange_token"
+
+    balance = client.get("/api/balance")
+    assert balance.status_code == 400
+    assert balance.get_json()["error"] == "not connected yet"
+
+
 def test_balance_ccy_filter(read_only_client):
     read_only_client.post("/api/connect", json={"code": "mock-code"})
     bal = read_only_client.get("/api/balance?ccy=BTC").get_json()
     details = bal["raw"]["data"][0]["details"]
     assert [d["ccy"] for d in details] == ["BTC"]
+
+
+def test_balance_rejects_invalid_ccy_filter(read_only_client):
+    read_only_client.post("/api/connect", json={"code": "mock-code"})
+    response = read_only_client.get("/api/balance?ccy=BTC%2FUSDT")
+    body = response.get_json()
+    assert response.status_code == 400
+    assert body["ok"] is False
+    assert body["error"] == "ccy must be a comma-separated currency list"
 
 
 def test_workflow_rejects_read_only_key(read_only_client):
@@ -271,6 +306,117 @@ def test_workflow_rejects_read_only_key(read_only_client):
     assert response.status_code == 400
     assert body["ok"] is False
     assert body["error"] == "created API Key does not have trade permission"
+
+
+@pytest.mark.parametrize("path,inst_id", [
+    ("/api/spot/open", "BTC-USDT"),
+    ("/api/swap/open", "BTC-USDT-SWAP"),
+])
+@pytest.mark.parametrize("quote_amount,expected_error", [
+    ("NaN", "quoteAmount must be a finite number"),
+    ("Infinity", "quoteAmount must be a finite number"),
+    ("0", "quoteAmount must be greater than 0"),
+    ("-1", "quoteAmount must be greater than 0"),
+])
+def test_workflows_reject_non_positive_or_non_finite_quote_amounts(
+    client, monkeypatch, path, inst_id, quote_amount, expected_error,
+):
+    client.post("/api/connect", json={"code": "mock-code"})
+    import app as app_module
+
+    place_order = Mock(side_effect=AssertionError("place_order should not be called"))
+    monkeypatch.setattr(app_module.okx, "place_order", place_order)
+    response = client.post(path, json={
+        "instId": inst_id,
+        "quoteAmount": quote_amount,
+    })
+    body = response.get_json()
+    assert response.status_code == 400
+    assert body["ok"] is False
+    assert body["error"] == expected_error
+    place_order.assert_not_called()
+
+
+def test_demo_workflow_fields_require_connect(read_only_client):
+    response = read_only_client.get("/api/demo-workflow-fields")
+    body = response.get_json()
+    assert response.status_code == 400
+    assert body["ok"] is False
+    assert body["error"] == "not connected yet"
+
+
+def test_demo_workflow_fields_use_account_config_defaults(read_only_client):
+    read_only_client.post("/api/connect", json={"code": "mock-code"})
+    response = read_only_client.get("/api/demo-workflow-fields")
+    body = response.get_json()
+
+    assert response.status_code == 200
+    assert body["ok"] is True
+    assert body["simulated"] is True
+    assert body["account"] == {"acctLv": "3", "posMode": "long_short_mode"}
+    assert body["fields"]["spot"] == {
+        "available": True,
+        "instId": "BTC-USDT",
+        "quoteAmount": "10",
+        "tdMode": "cross",
+    }
+    assert body["fields"]["swap"] == {
+        "available": True,
+        "instId": "BTC-USDT-SWAP",
+        "quoteAmount": "10",
+        "tdMode": "cross",
+        "mgnMode": "cross",
+        "posSide": "long",
+    }
+
+
+def test_demo_workflow_fields_show_net_position_side(read_only_client, monkeypatch):
+    read_only_client.post("/api/connect", json={"code": "mock-code"})
+    import app as app_module
+
+    monkeypatch.setattr(
+        app_module.okx,
+        "get_account_config",
+        lambda *args, **kwargs: {"code": "0", "data": [{"acctLv": "3", "posMode": "net_mode"}]},
+    )
+
+    response = read_only_client.get("/api/demo-workflow-fields")
+    body = response.get_json()
+
+    assert response.status_code == 200
+    assert body["ok"] is True
+    assert body["account"] == {"acctLv": "3", "posMode": "net_mode"}
+    assert body["fields"]["spot"]["tdMode"] == "cross"
+    assert body["fields"]["swap"]["available"] is True
+    assert body["fields"]["swap"]["posSide"] == "net"
+
+
+def test_demo_workflow_fields_keep_spot_available_for_spot_only_account_mode(
+    read_only_client, monkeypatch,
+):
+    read_only_client.post("/api/connect", json={"code": "mock-code"})
+    import app as app_module
+
+    monkeypatch.setattr(
+        app_module.okx,
+        "get_account_config",
+        lambda *args, **kwargs: {"code": "0", "data": [{"acctLv": "1", "posMode": "net_mode"}]},
+    )
+
+    response = read_only_client.get("/api/demo-workflow-fields")
+    body = response.get_json()
+
+    assert response.status_code == 200
+    assert body["ok"] is True
+    assert body["account"] == {"acctLv": "1", "posMode": "net_mode"}
+    assert body["fields"]["spot"] == {
+        "available": True,
+        "instId": "BTC-USDT",
+        "quoteAmount": "10",
+        "tdMode": "cash",
+    }
+    assert body["fields"]["swap"]["available"] is False
+    assert "acctLv=2, 3, or 4" in body["fields"]["swap"]["unavailableReason"]
 
 
 def test_trade_mode_helpers_cover_account_mode_matrix(client):
@@ -322,6 +468,36 @@ def test_order_parses_false_reduce_only(client, monkeypatch):
     })
     assert order.status_code == 200
     assert captured["reduce_only"] is False
+
+
+@pytest.mark.parametrize("patch,expected_error", [
+    ({"side": "hold"}, "side must be one of: buy, sell"),
+    ({"ordType": "ioc"}, "ordType must be one of: limit, market"),
+    ({"sz": "NaN"}, "sz must be a finite number"),
+    ({"px": "0"}, "px must be greater than 0"),
+    ({"posSide": "left"}, "posSide must be one of: long, net, short"),
+])
+def test_order_rejects_invalid_local_inputs(client, monkeypatch, patch, expected_error):
+    client.post("/api/connect", json={"code": "mock-code"})
+    import app as app_module
+
+    place_order = Mock(side_effect=AssertionError("place_order should not be called"))
+    monkeypatch.setattr(app_module.okx, "place_order", place_order)
+    payload = {
+        "instId": "BTC-USDT",
+        "tdMode": "cash",
+        "side": "buy",
+        "ordType": "limit",
+        "px": "1000",
+        "sz": "0.00000001",
+    }
+    payload.update(patch)
+    order = client.post("/api/order", json=payload)
+    body = order.get_json()
+    assert order.status_code == 400
+    assert body["ok"] is False
+    assert body["error"] == expected_error
+    place_order.assert_not_called()
 
 
 def test_live_order_requires_confirmation(live_client, monkeypatch):
@@ -409,6 +585,39 @@ def test_okx_client_close_position_serializes_tag_and_optional_fields(monkeypatc
     assert body["posSide"] == "long"
     assert body["autoCxl"] == "false"
     assert captured["headers"]["x-simulated-trading"] == "1"
+
+
+def test_okx_client_balance_uses_query_builder_and_validates_ccy(monkeypatch):
+    import okx_client as okx
+
+    monkeypatch.delenv("MOCK", raising=False)
+    monkeypatch.setattr(okx, "_now_iso_ms", lambda: "2020-01-01T00:00:00.000Z")
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"code":"0","data":[{"details":[]}]}'
+
+        def json(self):
+            return {"code": "0", "data": [{"details": []}]}
+
+    def fake_get(url, headers=None, timeout=None, **kwargs):
+        captured.update({"url": url, "headers": headers, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(okx.requests, "get", fake_get)
+    okx.get_account_balance(
+        "https://www.okx.com", "api", "secret", "pass",
+        ccy="btc, usdt", simulated=True,
+    )
+
+    assert captured["url"] == "https://www.okx.com/api/v5/account/balance?ccy=BTC%2CUSDT"
+    assert captured["headers"]["x-simulated-trading"] == "1"
+    with pytest.raises(ValueError):
+        okx.get_account_balance(
+            "https://www.okx.com", "api", "secret", "pass",
+            ccy="BTC/USDT", simulated=True,
+        )
 
 
 @pytest.mark.parametrize("path,workflow,payload", [

@@ -84,6 +84,20 @@ def _with_query(path: str, params: dict) -> str:
     return path + ("?" + urlencode(compacted) if compacted else "")
 
 
+def _ccy_filter(ccy: str = None) -> str:
+    if ccy in (None, ""):
+        return None
+    if not isinstance(ccy, str):
+        raise ValueError("ccy must be a string")
+    parts = [part.strip().upper() for part in ccy.split(",") if part.strip()]
+    if not parts:
+        return None
+    for part in parts:
+        if not part.isalnum():
+            raise ValueError("ccy must be a comma-separated currency list")
+    return ",".join(parts)
+
+
 def _public_headers(simulated: bool = True) -> dict:
     headers = {"Content-Type": "application/json"}
     if simulated:
@@ -273,11 +287,9 @@ def get_account_balance(base_url: str, api_key: str, secret_key: str, passphrase
     ccy is optional and filters by one or more comma-separated currencies.
     """
     if _mock_enabled():
-        return _mock_balance(ccy)
+        return _mock_balance(_ccy_filter(ccy))
     method = "GET"
-    request_path = PATH_ACCOUNT_BAL
-    if ccy:
-        request_path += f"?ccy={ccy}"
+    request_path = _with_query(PATH_ACCOUNT_BAL, {"ccy": _ccy_filter(ccy)})
     body = ""
     ts = _now_iso_ms()
     headers = {

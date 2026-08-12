@@ -2,6 +2,10 @@
 
 This demo is for **type 2** users: the user trades their own OKX account through an OKX-provided execution backend.
 
+The example workflows in this folder are written for the OKX Global site. For
+other OKX sites, check the selected CLI or MCP surface plus the OpenAPI
+Markdown docs before adapting the workflow.
+
 Supported backends:
 
 - **OKX Trade CLI**: local terminal/coding-agent workflows using the `okx` command.

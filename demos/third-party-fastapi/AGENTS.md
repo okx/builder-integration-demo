@@ -32,7 +32,9 @@ Full pitfalls and error-code checks live in `PITFALLS.md`. These are the highest
 
 - Authorization page does not show Fast API permission: check `scope=fast_api`.
 - Token exchange path is verified as `/v5/users/oauth/token`. If it returns 404, check domain, Broker permission, `redirect_uri`, `client_id`, and `client_secret`; do not add an `/api` prefix.
-- Callback `domain=https://eea.okx.com` means subsequent REST calls must use that domain and WebSocket should use `wss://wseea.okx.com`.
+- This demo checklist is written for OKX Global. When adapting to another OKX
+  site, check callback `domain`, frontend authorization site, backend REST
+  domain, and endpoint availability together.
 - Key creation `50118` means the Broker IP allowlist is required before using `bindApp=true`.
 - Signing failures such as 401 or 50113 usually mean timestamp format, prehash order, query/body exactness, or simulated trading header is wrong.
 - Frontend authorization site and backend REST domain must represent the same OKX site.

@@ -12,8 +12,8 @@ or localhost URLs, may stay in the workflow document where they are used.
 
 | Reference | Link | Use when |
 |---|---|---|
-| OpenAPI global site | `https://www.okx.com/docs-v5/en/#overview` | Reading OKX OpenAPI docs in a browser. |
-| OpenAPI Markdown repository | `https://github.com/okx/ai-builder-openapi-md` | Letting an AI assistant grep request schemas, parameter tables, and examples. |
+| OpenAPI global site | `https://www.okx.com/docs-v5/en/#overview` | Reading OKX Global OpenAPI docs in a browser. |
+| OpenAPI Markdown repository | `https://github.com/okx/ai-builder-openapi-md` | Letting an AI assistant check site support, request schemas, parameter tables, and examples. |
 | AI Builder integration introduction | `<AI_BUILDER_INTEGRATION_INTRO_URL>` | Understanding the three user types before choosing a demo path. |
 | Agent Trade Kit install guide | `https://www.okx.com/agent-tradekit` | Installing or connecting the OKX Trade CLI and OKX MCP surfaces. |
 | Agent Trade Kit code repository | `https://github.com/okx/agent-trade-kit` | CLI implementation reference for `aiBuilderCode` support. |
@@ -24,6 +24,10 @@ or localhost URLs, may stay in the workflow document where they are used.
   introduction when deciding Type 1, Type 2, or Type 3.
 - For Type 1 and Type 3 OpenAPI extensions, verify the request schema in the
   OpenAPI global site or Markdown repository before adding `tag`.
+- These demos are validated for OKX Global. For another OKX site, use the
+  OpenAPI Markdown repository to check site availability first, then read the
+  exact endpoint document for that site. Do not infer other-site support from
+  the Global demo.
 - For Type 2 CLI/MCP setup, use the Agent Trade Kit install guide before using
   the CLI or MCP example skills.
 - For Type 2 CLI capability checks, use installed CLI help first. Use the Agent

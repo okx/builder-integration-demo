@@ -2,6 +2,10 @@
 
 This repo keeps its existing name and covers three AI Builder integration paths. Start by choosing the user type, then read only the matching demo.
 
+These demos are written and tested for the OKX Global site
+(`https://www.okx.com`). For other OKX sites, check endpoint availability and
+request schemas in the OpenAPI Markdown docs before adapting the demo.
+
 ## Choose Your Path
 
 | User type | Runs where | Uses whose account | Recommended demo |

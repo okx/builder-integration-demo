@@ -19,6 +19,10 @@ scope and add tests for AI Builder Code attribution.
 Reference links for OpenAPI docs, Agent Trade Kit setup, and CLI source checks
 live in [REFERENCE_LINKS.md](REFERENCE_LINKS.md).
 
+The demo repo does not maintain a site-support matrix. The OpenAPI endpoint
+list below is a local extension reference for the Global demo scope; for any
+other OKX site, check the OpenAPI Markdown docs before adapting code.
+
 ## Verification Rules
 
 - OpenAPI sends AI Builder Code as request field `tag`.

@@ -6,6 +6,10 @@ Here **Fast API** means the OKX Fast API product capability, not the Python Fast
 
 The OAuth/Fast API flow in this demo has been verified in real integration. Keep the backend flow and OKX endpoint constants aligned with the code.
 
+This demo workflow is written and tested for the OKX Global site. Other OKX
+sites may have different endpoint availability; use the OpenAPI Markdown docs
+as the source of truth before changing the site.
+
 Before migrating this demo into another project, read [PITFALLS.md](PITFALLS.md) for the high-frequency integration issues and error-code checks.
 
 ## What This Demo Shows
@@ -103,6 +107,8 @@ order-producing endpoint, first verify the OKX request schema, then add a
 demo-specific scope note and tests before passing `tag`.
 Use [../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md](../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md)
 as the extension reference.
+To adapt this demo to another OKX site, check that site's endpoint availability
+and request schemas in the OpenAPI Markdown docs first.
 
 The demo creates Fast API Keys with `bindApp=true`, matching the backend code. This requires the Broker IP allowlist to be enabled by OKX.
 
@@ -121,8 +127,10 @@ Do not change the token path; the demo uses the path verified in real integratio
 
 ## Demo Order Workflows
 
-After connecting OKX and creating a Fast API Key with `APIKEY_PERM=trade`, the
-page exposes four demo actions:
+After connecting OKX, the page exposes `Fill Demo Fields` plus four order
+workflow actions. `Fill Demo Fields` is read-only. The four order workflow
+buttons require a Fast API Key created with `APIKEY_PERM=trade` and a configured
+`AI_BUILDER_CODE`:
 
 | Button | Local route | OKX order endpoint carrying AI Builder Code |
 |---|---|---|
@@ -131,25 +139,37 @@ page exposes four demo actions:
 | Swap Open | `POST /api/swap/open` | `POST /api/v5/trade/order` |
 | Swap Close | `POST /api/swap/close` | `POST /api/v5/trade/close-position` |
 
-The frontend sends instrument and quote amount inputs for the workflows. For
+The `Fill Demo Fields` button calls `GET /api/demo-workflow-fields`, which reads
+the connected account's current `account/config` through the backend and fills
+the visible manual-test fields. It does not place an order. It can run with a
+read-only Fast API Key, but order workflow buttons remain disabled unless the
+created key has trade permission and `AI_BUILDER_CODE` is configured. If the
+user changes instrument, trade mode, margin mode, or position side after filling
+the fields, fill them again before running an order workflow. Changing quote
+amount only changes sizing and does not require refilling. If the connected
+account supports spot but not swap, the helper still fills spot fields and keeps
+swap workflow buttons disabled with an unavailable reason in the helper result.
+
+The frontend sends instrument, sizing, trade-mode, margin-mode, and position-side
+inputs for the workflows. For
 spot workflows, `quoteAmount` is denominated in the instrument quote currency:
 `BTC-USDT` uses USDT, while another spot pair uses that pair's quote currency
 for sizing and balance checks. Spot preflight output includes `baseCcy` and
 `quoteCcy` so callers do not need to infer currencies from dynamic balance field
-names. The Spot trade mode selector defaults to Auto, which omits `tdMode` so
-the backend can choose from account config. The backend performs ticker,
-instrument-rule, account-config, and balance reads. Spot workflows default
-`tdMode` from
+names. The backend performs ticker, instrument-rule, account-config, and balance
+reads. Spot workflows default `tdMode` from
 `acctLv`: `cash` for account modes `1` and `2`, `cross` for account modes `3`
 and `4`. The backend rejects spot trade modes that conflict with account mode:
 `acctLv=1` requires `cash`, while `acctLv=3` and `4` require `cross`. Swap open
 requires a swap-capable account mode (`acctLv=2`, `3`, or `4`) and defaults
 `tdMode` to `cross`. Swap workflows also read `posMode` to decide whether to
-send `posSide`. Swap open converts `quoteAmount` to contract count for linear
-swap instruments and checks balance with the instrument `settleCcy`. Inverse USD
-swap instruments such as `BTC-USD-SWAP` use different sizing and settlement
-rules and fail before order placement. The response includes `preflight`,
-`sent_order`, and the raw OKX response.
+send `posSide`: in `long_short_mode`, this demo opens and closes the long side;
+in `net_mode`, the UI displays `net` and the backend omits `posSide` in the OKX
+request. Swap open converts `quoteAmount` to contract count for linear swap
+instruments and checks balance with the instrument `settleCcy`. Inverse USD swap
+instruments such as `BTC-USD-SWAP` use different sizing and settlement rules and
+fail before order placement. The response includes `preflight`, `sent_order`,
+and the raw OKX response.
 
 Example request bodies:
 
@@ -164,15 +184,15 @@ POST /api/spot/close
 
 POST /api/swap/open
 {"instId":"BTC-USDT-SWAP","quoteAmount":"10"}
-{"instId":"BTC-USDT-SWAP","quoteAmount":"10","tdMode":"isolated"}
+{"instId":"BTC-USDT-SWAP","quoteAmount":"10","tdMode":"cross","posSide":"long"}
 
 POST /api/swap/close
-{"instId":"BTC-USDT-SWAP","mgnMode":"cross"}
-{"instId":"BTC-USDT-SWAP","mgnMode":"isolated"}
+{"instId":"BTC-USDT-SWAP","mgnMode":"cross","posSide":"long"}
 ```
 
-For swap close, use the margin mode of the position being closed. If swap open
-uses `tdMode=isolated`, close that position with `mgnMode=isolated`.
+For swap close, use the margin mode and position side of the position being
+closed. In `net_mode`, send `posSide=net` or omit `posSide`; the backend omits
+the OKX `posSide` request field.
 
 ## Files
 
@@ -201,6 +221,7 @@ test -d .tmpvenv || python3 -m venv .tmpvenv
 source .tmpvenv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest
+node tests/verify_frontend_workflow_state.js
 node tests/verify_js_sign.js
 ```
 

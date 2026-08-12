@@ -27,7 +27,8 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import okx_client as okx
 
-load_dotenv()
+if os.environ.get("OKX_FASTAPI_DEMO_SKIP_DOTENV") != "1":
+    load_dotenv()
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app = Flask(__name__, static_folder=None)
@@ -36,7 +37,7 @@ app = Flask(__name__, static_folder=None)
 CLIENT_ID         = os.environ.get("CLIENT_ID", "")
 CLIENT_SECRET     = os.environ.get("CLIENT_SECRET", "")
 REDIRECT_URI      = os.environ.get("REDIRECT_URI", "http://localhost:8000/")
-SCOPE             = os.environ.get("SCOPE", "fast_api")
+SCOPE             = "fast_api"
 OKX_BASE_URL      = (os.environ.get("OKX_BASE_URL", "https://www.okx.com") or "https://www.okx.com").rstrip("/")
 SIMULATED         = os.environ.get("SIMULATED", "1") == "1"        # Safe default.
 MOCK              = os.environ.get("MOCK", "") == "1"              # MOCK=1 avoids real HTTP.
@@ -46,6 +47,10 @@ APIKEY_PERM       = os.environ.get("APIKEY_PERM", "read_only")     # Safe defaul
 AI_BUILDER_CODE   = os.environ.get("AI_BUILDER_CODE", "")          # Sent as OKX order tag.
 AI_BUILDER_CODE_PATTERN = re.compile(r"^[A-Za-z0-9]{1,16}$")
 QUOTE_AMOUNT_STEP = Decimal("0.01")
+DEMO_SPOT_INST_ID = "BTC-USDT"
+DEMO_SWAP_INST_ID = "BTC-USDT-SWAP"
+DEMO_QUOTE_AMOUNT = "10"
+DEMO_SWAP_CLOSE_MGN_MODE = "cross"
 
 # Callback domain is external input. Allowlist it before using it as a base URL;
 # otherwise an attacker could redirect backend token/API requests to another host.
@@ -68,6 +73,12 @@ def _json_error(message: str, status: int = 400, **extra):
 
 def _session_creds():
     return _CREDS.get(request.cookies.get("demo_sid", ""))
+
+
+def _clear_session_creds() -> None:
+    sid = request.cookies.get("demo_sid", "")
+    if sid:
+        _CREDS.pop(sid, None)
 
 
 def _has_trade_permission(creds: dict) -> bool:
@@ -176,9 +187,44 @@ def _decimal(value, name: str) -> Decimal:
         dec = Decimal(str(value))
     except (InvalidOperation, ValueError):
         raise ValueError(f"{name} must be a number")
+    if not dec.is_finite():
+        raise ValueError(f"{name} must be a finite number")
     if dec <= 0:
         raise ValueError(f"{name} must be greater than 0")
     return dec
+
+
+def _required_order_text(data: dict, name: str) -> str:
+    value = data.get(name)
+    if value is None or str(value).strip() == "":
+        raise ValueError(f"missing {name}")
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string")
+    return value.strip()
+
+
+def _optional_order_text(value, name: str) -> str:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string")
+    value = value.strip()
+    return value or None
+
+
+def _required_order_enum(data: dict, name: str, allowed: set, default: str = None) -> str:
+    value = data.get(name)
+    if value in (None, ""):
+        if default is None:
+            raise ValueError(f"missing {name}")
+        value = default
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string")
+    value = value.strip().lower()
+    if value not in allowed:
+        choices = ", ".join(sorted(allowed))
+        raise ValueError(f"{name} must be one of: {choices}")
+    return value
 
 
 def _required_text(data: dict, name: str) -> str:
@@ -384,6 +430,45 @@ def _workflow_pos_side(config_resp: dict, requested=None) -> str:
             return None
         raise ValueError("posMode=net_mode uses net positions; omit posSide")
     raise ValueError(f"unsupported or missing posMode for swap workflow: {pos_mode or '(empty)'}")
+
+
+def _workflow_pos_side_field(config_resp: dict) -> str:
+    return _workflow_pos_side(config_resp) or "net"
+
+
+def _demo_workflow_fields(config_resp: dict) -> dict:
+    spot_td_mode = _spot_td_mode(None, config_resp)
+    acct_lv = _account_level(config_resp)
+    pos_mode = _position_mode(config_resp)
+    swap = {
+        "available": False,
+        "instId": DEMO_SWAP_INST_ID,
+        "quoteAmount": DEMO_QUOTE_AMOUNT,
+        "tdMode": "cross",
+        "mgnMode": DEMO_SWAP_CLOSE_MGN_MODE,
+        "posSide": "net",
+    }
+    try:
+        swap["tdMode"] = _swap_td_mode(None, config_resp)
+        swap["posSide"] = _workflow_pos_side_field(config_resp)
+        swap["available"] = True
+    except ValueError as exc:
+        swap["unavailableReason"] = str(exc)
+    return {
+        "account": {
+            "acctLv": acct_lv,
+            "posMode": pos_mode,
+        },
+        "fields": {
+            "spot": {
+                "available": True,
+                "instId": DEMO_SPOT_INST_ID,
+                "quoteAmount": DEMO_QUOTE_AMOUNT,
+                "tdMode": spot_td_mode,
+            },
+            "swap": swap,
+        },
+    }
 
 
 def _get_market_preflight(base_url: str, inst_type: str, inst_id: str) -> tuple:
@@ -743,6 +828,9 @@ def connect():
     data = request.get_json(force=True) or {}
     code = data.get("code")
     domain = data.get("domain")
+    # A new connect attempt replaces the prior session connection. If this attempt
+    # fails, follow-up balance/order requests must not keep using stale credentials.
+    _clear_session_creds()
     if not code:
         return jsonify({"ok": False, "error": "missing code"}), 400
 
@@ -802,12 +890,35 @@ def balance():
     if not creds:
         return jsonify({"ok": False, "error": "not connected yet"}), 400
     ccy = request.args.get("ccy")
-    res = okx.get_account_balance(
-        creds["base"], creds["api_key"], creds["secret_key"],
-        creds["passphrase"], ccy=ccy, simulated=SIMULATED,
-    )
+    try:
+        res = okx.get_account_balance(
+            creds["base"], creds["api_key"], creds["secret_key"],
+            creds["passphrase"], ccy=ccy, simulated=SIMULATED,
+        )
+    except ValueError as exc:
+        return _json_error(str(exc))
     # Demo returns the full balance payload. Production should whitelist fields as needed.
     return jsonify({"ok": res.get("code") == "0", "raw": res})
+
+
+@app.get("/api/demo-workflow-fields")
+def demo_workflow_fields():
+    """
+    Return recommended manual-test fields based on the current account config.
+    This is read-only and mirrors the Type 1 OpenAPI workflow defaults.
+    """
+    creds = _session_creds()
+    if not creds:
+        return _json_error("not connected yet")
+    try:
+        config_resp = okx.get_account_config(
+            creds["base"], creds["api_key"], creds["secret_key"],
+            creds["passphrase"], simulated=SIMULATED,
+        )
+        result = _demo_workflow_fields(config_resp)
+    except ValueError as exc:
+        return _json_error(str(exc), step="demo_workflow_fields")
+    return jsonify({"ok": True, "simulated": SIMULATED, **result})
 
 
 @app.post("/api/order")
@@ -825,26 +936,27 @@ def order():
         _guard_live_workflow(data)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-    inst_id  = data.get("instId")
     try:
+        inst_id = _required_order_text(data, "instId")
         td_mode = _required_trade_mode(data.get("tdMode"), "tdMode",
                                        {"cash", "cross", "isolated"}, default="cash")
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-    side     = data.get("side")
-    ord_type = data.get("ordType") or "limit"
-    sz       = data.get("sz")
-    px       = data.get("px")
-    tgt_ccy  = data.get("tgtCcy")
-    pos_side = data.get("posSide")
-    try:
+        side = _required_order_enum(data, "side", {"buy", "sell"})
+        ord_type = _required_order_enum(data, "ordType", {"limit", "market"}, default="limit")
+        sz = _fmt_decimal(_decimal(_required_order_text(data, "sz"), "sz"))
+        px = None
+        if ord_type == "limit":
+            px = _fmt_decimal(_decimal(_required_order_text(data, "px"), "px"))
+        else:
+            px = _optional_order_text(data.get("px"), "px")
+            if px:
+                px = _fmt_decimal(_decimal(px, "px"))
+        tgt_ccy = _optional_order_text(data.get("tgtCcy"), "tgtCcy")
+        pos_side = _optional_order_text(data.get("posSide"), "posSide")
+        if pos_side and pos_side not in {"long", "short", "net"}:
+            raise ValueError("posSide must be one of: long, net, short")
         reduce_only = _bool_arg(data.get("reduceOnly"), False)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-    if not (inst_id and side and sz):
-        return jsonify({"ok": False, "error": "missing instId/side/sz"}), 400
-    if ord_type == "limit" and not px:
-        return jsonify({"ok": False, "error": "limit order requires px"}), 400
     if not AI_BUILDER_CODE or AI_BUILDER_CODE.startswith("<"):
         return jsonify({"ok": False, "error": "missing AI_BUILDER_CODE"}), 400
     if not AI_BUILDER_CODE_PATTERN.match(AI_BUILDER_CODE):

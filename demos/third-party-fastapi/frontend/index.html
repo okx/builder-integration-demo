@@ -82,13 +82,20 @@
       <label>
         Swap close margin mode
         <select id="swap-mgn-mode">
-          <option value="" selected>Select</option>
-          <option value="cross">cross</option>
+          <option value="cross" selected>cross</option>
           <option value="isolated">isolated</option>
+        </select>
+      </label>
+      <label>
+        Swap position side
+        <select id="swap-pos-side">
+          <option value="long" selected>long</option>
+          <option value="net">net</option>
         </select>
       </label>
     </div>
     <div class="workflow-actions">
+      <button id="btn-fill-demo-fields" disabled>Fill Demo Fields</button>
       <button id="btn-spot-open" disabled>Spot Open</button>
       <button id="btn-spot-close" disabled>Spot Close</button>
       <button id="btn-swap-open" disabled>Swap Open</button>
@@ -107,6 +114,61 @@ const log = (m) => { document.getElementById('log').textContent += `\n${m}`; };
 const show = (id, obj) => { const el = document.getElementById(id); el.hidden = false; el.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2); };
 
 let CONFIG = {};
+let CAN_RUN_ORDER_WORKFLOWS = false;
+let DEMO_FIELDS_READY = false;
+const ORDER_BUTTON_WORKFLOWS = {
+  'btn-spot-open': 'spotOpen',
+  'btn-spot-close': 'spotClose',
+  'btn-swap-open': 'swapOpen',
+  'btn-swap-close': 'swapClose',
+};
+let WORKFLOW_AVAILABILITY = {
+  spotOpen: false,
+  spotClose: false,
+  swapOpen: false,
+  swapClose: false,
+};
+const STRUCTURAL_WORKFLOW_FIELD_IDS = [
+  'spot-inst', 'spot-td-mode',
+  'swap-inst', 'swap-td-mode', 'swap-mgn-mode', 'swap-pos-side',
+];
+
+function setOrderButtonsEnabled(enabled) {
+  for (const [id, workflow] of Object.entries(ORDER_BUTTON_WORKFLOWS)) {
+    document.getElementById(id).disabled = !(enabled && WORKFLOW_AVAILABILITY[workflow]);
+  }
+}
+
+function setFillButtonEnabled(enabled) {
+  document.getElementById('btn-fill-demo-fields').disabled = !enabled;
+}
+
+function resetWorkflowAvailability() {
+  WORKFLOW_AVAILABILITY = {
+    spotOpen: false,
+    spotClose: false,
+    swapOpen: false,
+    swapClose: false,
+  };
+}
+
+function resetConnectedState() {
+  CAN_RUN_ORDER_WORKFLOWS = false;
+  DEMO_FIELDS_READY = false;
+  resetWorkflowAvailability();
+  document.getElementById('btn-balance').disabled = true;
+  setFillButtonEnabled(false);
+  setOrderButtonsEnabled(false);
+}
+
+function invalidateDemoFields() {
+  if (DEMO_FIELDS_READY) {
+    log('Demo fields changed; order buttons disabled until Fill Demo Fields is clicked again');
+  }
+  DEMO_FIELDS_READY = false;
+  resetWorkflowAvailability();
+  setOrderButtonsEnabled(false);
+}
 
 async function init() {
   // 1. Read public backend config for authorization.
@@ -146,6 +208,7 @@ async function init() {
 }
 
 async function runConnect(code, domain) {
+  resetConnectedState();
   log('-> Calling backend /api/connect to create API Key');
   const res = await (await fetch('/api/connect', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -155,16 +218,25 @@ async function runConnect(code, domain) {
   if (res.ok) {
     log(`[ok] Connected, API Key=${res.api_key_masked}, perm=${res.perm}`);
     document.getElementById('btn-balance').disabled = false;
+    DEMO_FIELDS_READY = false;
+    resetWorkflowAvailability();
     const permParts = String(res.perm || '').toLowerCase().split(/[,\s]+/).filter(Boolean);
     const canTrade = permParts.includes('trade');
     if (CONFIG.ai_builder_code && canTrade) {
-      for (const id of ['btn-spot-open', 'btn-spot-close', 'btn-swap-open', 'btn-swap-close']) {
-        document.getElementById(id).disabled = false;
-      }
+      CAN_RUN_ORDER_WORKFLOWS = true;
+      setFillButtonEnabled(true);
+      setOrderButtonsEnabled(false);
+      log('Click Fill Demo Fields before running demo order workflows');
     } else if (!canTrade) {
-      log('Workflow actions are disabled because the created API Key does not have trade permission');
+      CAN_RUN_ORDER_WORKFLOWS = false;
+      setFillButtonEnabled(true);
+      setOrderButtonsEnabled(false);
+      log('Fill Demo Fields is available; order workflow buttons are disabled because the created API Key does not have trade permission');
     } else {
-      log('AI_BUILDER_CODE is missing; workflow actions are disabled, balance still works');
+      CAN_RUN_ORDER_WORKFLOWS = false;
+      setFillButtonEnabled(true);
+      setOrderButtonsEnabled(false);
+      log('Fill Demo Fields is available; order workflow buttons are disabled because AI_BUILDER_CODE is missing');
     }
   } else {
     log(`[error] Connect failed at ${res.step || 'unknown step'}; see response above`);
@@ -205,6 +277,46 @@ document.getElementById('btn-balance').addEventListener('click', async () => {
 
 const fieldValue = (id) => document.getElementById(id).value.trim();
 
+async function fillDemoFields() {
+  log('-> Calling backend /api/demo-workflow-fields to read account config');
+  const res = await (await fetch('/api/demo-workflow-fields')).json();
+  show('workflow-result', res);
+  if (!res.ok) {
+    DEMO_FIELDS_READY = false;
+    setOrderButtonsEnabled(false);
+    return log(`[error] Fill Demo Fields failed at ${res.step || 'unknown step'}; see response above`);
+  }
+
+  const spot = res.fields && res.fields.spot ? res.fields.spot : {};
+  const swap = res.fields && res.fields.swap ? res.fields.swap : {};
+  document.getElementById('spot-inst').value = spot.instId || 'BTC-USDT';
+  document.getElementById('spot-quote').value = spot.quoteAmount || '10';
+  document.getElementById('spot-td-mode').value = spot.tdMode || '';
+  document.getElementById('swap-inst').value = swap.instId || 'BTC-USDT-SWAP';
+  document.getElementById('swap-quote').value = swap.quoteAmount || '10';
+  document.getElementById('swap-td-mode').value = swap.tdMode || 'cross';
+  document.getElementById('swap-mgn-mode').value = swap.mgnMode || 'cross';
+  document.getElementById('swap-pos-side').value = swap.posSide || 'net';
+  const spotAvailable = spot.available !== false;
+  const swapAvailable = swap.available === true;
+  WORKFLOW_AVAILABILITY = {
+    spotOpen: spotAvailable,
+    spotClose: spotAvailable,
+    swapOpen: swapAvailable,
+    swapClose: swapAvailable,
+  };
+  DEMO_FIELDS_READY = true;
+  setOrderButtonsEnabled(CAN_RUN_ORDER_WORKFLOWS);
+  const account = res.account || {};
+  log(`[ok] Demo fields filled from account config: acctLv=${account.acctLv || '(empty)'} posMode=${account.posMode || '(empty)'}`);
+  if (!swapAvailable && swap.unavailableReason) {
+    log(`Swap workflows unavailable: ${swap.unavailableReason}`);
+  }
+  if (!CAN_RUN_ORDER_WORKFLOWS) {
+    log('Order workflow buttons remain disabled until trade permission and AI Builder Code are configured');
+  }
+}
+
 function workflowBody(kind) {
   const spotInst = fieldValue('spot-inst');
   const spotQuote = fieldValue('spot-quote');
@@ -213,6 +325,7 @@ function workflowBody(kind) {
   const swapQuote = fieldValue('swap-quote');
   const swapTdMode = fieldValue('swap-td-mode');
   const swapMgnMode = fieldValue('swap-mgn-mode');
+  const swapPosSide = fieldValue('swap-pos-side');
 
   if (kind.startsWith('spot') && (!spotInst || !spotQuote)) {
     throw new Error('Spot instId and quote amount are required');
@@ -222,6 +335,9 @@ function workflowBody(kind) {
   }
   if (kind === 'swap-open' && !swapQuote) {
     throw new Error('Swap quote amount is required');
+  }
+  if (kind.startsWith('swap') && !swapPosSide) {
+    throw new Error('Swap position side is required');
   }
   if (kind === 'swap-close' && !swapMgnMode) {
     throw new Error('Swap close margin mode is required');
@@ -233,9 +349,9 @@ function workflowBody(kind) {
     return body;
   }
   if (kind === 'swap-open') {
-    return { instId: swapInst, quoteAmount: swapQuote, tdMode: swapTdMode };
+    return { instId: swapInst, quoteAmount: swapQuote, tdMode: swapTdMode, posSide: swapPosSide };
   }
-  return { instId: swapInst, mgnMode: swapMgnMode };
+  return { instId: swapInst, mgnMode: swapMgnMode, posSide: swapPosSide };
 }
 
 async function runWorkflow(path, label, kind) {
@@ -269,6 +385,11 @@ document.getElementById('btn-spot-open').addEventListener('click', () => runWork
 document.getElementById('btn-spot-close').addEventListener('click', () => runWorkflow('/api/spot/close', 'Spot Close', 'spot-close'));
 document.getElementById('btn-swap-open').addEventListener('click', () => runWorkflow('/api/swap/open', 'Swap Open', 'swap-open'));
 document.getElementById('btn-swap-close').addEventListener('click', () => runWorkflow('/api/swap/close', 'Swap Close', 'swap-close'));
+document.getElementById('btn-fill-demo-fields').addEventListener('click', fillDemoFields);
+for (const id of STRUCTURAL_WORKFLOW_FIELD_IDS) {
+  document.getElementById(id).addEventListener('input', invalidateDemoFields);
+  document.getElementById(id).addEventListener('change', invalidateDemoFields);
+}
 
 init();
 </script>

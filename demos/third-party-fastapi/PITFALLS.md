@@ -33,9 +33,12 @@ This demo has already passed real integration. Treat these notes as guardrails w
    - Keep demo and live API Keys separate.
 
 6. **Domain consistency**
-   - If the OAuth callback includes `domain=https://eea.okx.com`, subsequent REST calls must use that domain.
-   - Supported REST domains in this demo are `https://www.okx.com`, `https://tr.okx.com`, and `https://eea.okx.com`.
-   - Frontend authorization `requestUrl` and backend REST domain must represent the same OKX site.
+   - This demo checklist is written for OKX Global.
+   - When adapting to another OKX site, the OAuth callback `domain`, frontend
+     authorization `requestUrl`, backend REST domain, and endpoint availability
+     must be checked together.
+   - Use the OpenAPI Markdown docs as the source of truth for other-site
+     endpoint availability.
 
 7. **OpenAPI signing exactness**
    - Use the root signing rules in [../../docs/OPENAPI_SIGNING.md](../../docs/OPENAPI_SIGNING.md).

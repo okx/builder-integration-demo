@@ -84,7 +84,9 @@ https://yourapp.com/callback?code=...&state=...&domain=https://www.okx.com
 ```
 
 - Always validate callback `state` against the stored outbound `state`. Discard the callback on mismatch.
-- If `domain=https://eea.okx.com`, use that domain for subsequent REST calls and `wss://wseea.okx.com` for WebSocket.
+- This demo checklist is written for OKX Global. When adapting to another OKX
+  site, the callback `domain`, frontend authorization site, backend REST domain,
+  and endpoint availability must be checked against the OpenAPI Markdown docs.
 
 ### Step 3: Exchange Authorization Code For Access Token
 

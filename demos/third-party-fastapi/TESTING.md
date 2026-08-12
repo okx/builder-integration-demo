@@ -1,6 +1,10 @@
-# Testing Guide
+# Third-party Fast API Testing Guide
 
 This demo has three test layers, from local checks without Broker credentials to real integration with a test Broker.
+
+The real integration checklist is written for the OKX Global site. For another
+OKX site, check endpoint availability and request schemas in the OpenAPI
+Markdown docs before adapting the checklist.
 
 - (a) Unit tests: no network; verify signing and timestamp logic with known-answer vectors.
 - (b) Mock mode: no real HTTP; use canned OKX-like responses to run the frontend/backend flow locally.
@@ -8,7 +12,7 @@ This demo has three test layers, from local checks without Broker credentials to
 
 Security note: tests and mock mode do not use real secrets. `mock-secret` is a placeholder string, not a credential. `secretKey` and `passphrase` must never appear in frontend responses, logs, or git.
 
-## (a) Unit Tests
+## A. Local Unit And Mock Tests
 
 Install dev dependencies and run:
 
@@ -18,6 +22,7 @@ test -d .tmpvenv || python3 -m venv .tmpvenv
 source .tmpvenv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest
+node tests/verify_frontend_workflow_state.js
 ```
 
 Expected result: all tests pass.
@@ -35,10 +40,16 @@ What the tests cover:
     and the demo workflow routes.
   - Asserts `ok=True`, masked `apiKey`, AI Builder Code echoed as OKX `tag`,
     and no leaked `secretKey` or `passphrase`.
+- `tests/verify_frontend_workflow_state.js`
+  - Loads the frontend script with a minimal DOM mock.
+  - Verifies `Fill Demo Fields` enables only available workflow buttons,
+    read-only keys can fill fields but cannot run orders, quote amount edits do
+    not require refilling, and structural field edits disable order workflows
+    until fields are filled again.
 
 `tests/conftest.py` adds `backend/` to `sys.path`, so running `python -m pytest` from this demo directory is enough.
 
-## Multi-Language Signing Check
+### Multi-Language Signing Check
 
 `SIGNING.md` includes Python and Node.js snippets. They use the same known-answer vectors as `tests/test_sign.py`.
 
@@ -50,7 +61,7 @@ Expected result: the Node.js signatures match the Python baseline and the comman
 
 This only proves the language snippets are algorithmically equivalent. The Python demo has passed real integration; a migrated implementation should still run the real integration checklist below.
 
-## (b) Mock Mode
+## B. Browser Smoke Test In Mock Mode
 
 Start the backend with `MOCK=1`. In this mode, `exchange_token`, `delete_oauth_apikey`, `create_oauth_apikey`, and `get_account_balance` do not send real HTTP. They return canned OKX-like responses.
 
@@ -76,7 +87,10 @@ curl -s -c cookies.txt -X POST http://localhost:8000/api/connect \
 # 2. Query balance with the session cookie.
 curl -s -b cookies.txt http://localhost:8000/api/balance
 
-# 3. Verify the demo workflow routes inject AI Builder Code as OKX tag.
+# 3. Fill workflow fields from mocked account config.
+curl -s -b cookies.txt http://localhost:8000/api/demo-workflow-fields
+
+# 4. Verify the demo workflow routes inject AI Builder Code as OKX tag.
 curl -s -b cookies.txt -X POST http://localhost:8000/api/spot/open \
      -H 'Content-Type: application/json' \
      -d '{"instId":"BTC-USDT","quoteAmount":"10"}'
@@ -85,14 +99,19 @@ curl -s -b cookies.txt -X POST http://localhost:8000/api/spot/close \
      -d '{"instId":"BTC-USDT","quoteAmount":"10"}'
 curl -s -b cookies.txt -X POST http://localhost:8000/api/swap/open \
      -H 'Content-Type: application/json' \
-     -d '{"instId":"BTC-USDT-SWAP","quoteAmount":"10"}'
+     -d '{"instId":"BTC-USDT-SWAP","quoteAmount":"10","tdMode":"cross","posSide":"long"}'
 curl -s -b cookies.txt -X POST http://localhost:8000/api/swap/close \
      -H 'Content-Type: application/json' \
-     -d '{"instId":"BTC-USDT-SWAP","mgnMode":"cross"}'
+     -d '{"instId":"BTC-USDT-SWAP","mgnMode":"cross","posSide":"long"}'
 ```
 
-In mock mode, each response should have `ok=true`, `sent_order.tag=ABCD1234`,
-and `raw.data[0].tag=ABCD1234`.
+In mock mode, `/api/demo-workflow-fields` should return `acctLv=3`,
+`posMode=long_short_mode`, spot `tdMode=cross`, swap `tdMode=cross`,
+`mgnMode=cross`, and `posSide=long`. If mocked or real account config is
+changed to `acctLv=1`, the helper should still return spot fields with
+`tdMode=cash` and mark swap workflows unavailable. Each order workflow response
+should have `ok=true`, `sent_order.tag=ABCD1234`, and
+`raw.data[0].tag=ABCD1234`.
 
 The swap workflow examples use `BTC-USDT-SWAP`. The demo supports
 linear swap instruments only; inverse USD swap instruments such as
@@ -102,7 +121,7 @@ placement.
 For real OAuth integration, leave `MOCK` unset. Use `MOCK=1` only for local
 backend checks without real OAuth.
 
-## (c) Real Integration Checklist
+## C. Real OAuth Integration Checklist
 
 Prerequisites:
 
@@ -117,7 +136,8 @@ Configure `.env` locally. Do not commit it:
 CLIENT_ID=...
 CLIENT_SECRET=...
 REDIRECT_URI=http://localhost:8000/
-APIKEY_PASSPHRASE=...
+OKX_BASE_URL=https://www.okx.com
+APIKEY_PASSPHRASE=<8-32 chars with uppercase, lowercase, number, and special char>
 SIMULATED=1
 APIKEY_PERM=read_only
 AI_BUILDER_CODE=
@@ -126,9 +146,10 @@ AI_BUILDER_CODE=
 Use `APIKEY_PERM=read_only` for balance-only smoke testing. If you plan to run
 the demo order workflows in the same pass, set `APIKEY_PERM=trade` before the
 first connect so `/api/connect` creates a trade-permission Fast API Key, and
-set `AI_BUILDER_CODE=<AI_BUILDER_CODE>` before order workflow tests.
+set `AI_BUILDER_CODE=<AI_BUILDER_CODE>` before order workflow tests. Keep
+`OKX_BASE_URL=https://www.okx.com` for this demo checklist.
 
-Checklist:
+### TC-1: OAuth Connect
 
 1. [ ] Authorization page opens and shows Fast API permission. If not, check `scope=fast_api`.
 2. [ ] Callback returns with `code`; the UI logs `Detected OAuth callback: code=...`.
@@ -137,16 +158,43 @@ Checklist:
 5. [ ] Delete old key is accepted; `code=0` or `59506` are both valid.
 6. [ ] New key is created; UI shows masked `apiKey`, `perm` matching
    `APIKEY_PERM`, and `simulated=true`.
-7. [ ] Balance query succeeds with `code=0` and fields such as `totalEq` and `details[]`.
-8. [ ] To test order attribution in simulation after a read-only connect, stop
-   the backend, set `APIKEY_PERM=trade`, start it again, and reconnect so the old
-   key is deleted and a new trade-permission Fast API Key is created. Keep
-   `SIMULATED=1`, configure `AI_BUILDER_CODE`, fill the page's spot/swap
-   instrument and quote amount fields, and run the demo workflow buttons:
-   Spot Open, Spot Close, Swap Open, Swap Close. The final OKX order request
-   body must contain `tag`.
-9. [ ] No sensitive field is leaked in browser responses or backend logs.
-10. [ ] For 50116, 50117, 50118, 53018, or signing errors, follow [PITFALLS.md](PITFALLS.md).
+7. [ ] No sensitive field is leaked in browser responses or backend logs.
+
+### TC-2: Read-Only Account Query
+
+1. [ ] Use `APIKEY_PERM=read_only` and `SIMULATED=1`.
+2. [ ] Connect through OAuth.
+3. [ ] Click `Query Balance`.
+4. [ ] Balance query succeeds with `code=0` and fields such as `totalEq` and `details[]`.
+5. [ ] Click `Fill Demo Fields`.
+6. [ ] The helper result shows the current `acctLv` and `posMode`, and fills:
+   `Spot instId=BTC-USDT`, `Spot quote amount=10`, `Spot trade mode` from
+   account config, `Swap instId=BTC-USDT-SWAP`, `Swap quote amount=10`,
+   `Swap open trade mode=cross`, `Swap close margin mode=cross`, and
+   `Swap position side=long` in `long_short_mode` or `net` in `net_mode`.
+7. [ ] If the connected account supports spot but not swap, spot fields are
+   still filled and swap workflows show an unavailable reason.
+8. [ ] Order workflow buttons remain disabled because the Fast API Key is read-only.
+
+### TC-3: Simulated Order Attribution
+
+1. [ ] Set `APIKEY_PERM=trade`, keep `SIMULATED=1`, configure `AI_BUILDER_CODE`,
+   restart the backend, and reconnect so the old key is deleted and a new
+   trade-permission Fast API Key is created.
+2. [ ] Click `Fill Demo Fields`.
+3. [ ] If the account is in `long_short_mode`, verify the filled swap position
+   side is `long`; this demo opens and closes the long-side workflow only.
+4. [ ] Optionally adjust `Spot quote amount` or `Swap quote amount`; quote amount
+   changes do not require clicking `Fill Demo Fields` again.
+5. [ ] If instrument, trade mode, margin mode, or position side is edited, order
+   workflow buttons are disabled until `Fill Demo Fields` is clicked again.
+6. [ ] Run `Spot Open`, `Spot Close`, `Swap Open`, and `Swap Close`.
+7. [ ] Each final OKX order request body contains `tag`.
+8. [ ] If the account had no base asset before Spot Open, lower the spot quote
+   amount before Spot Close; fees or price movement can make closing the same
+   quote notional exceed the available base balance.
+
+For 50116, 50117, 50118, 53018, or signing errors, follow [PITFALLS.md](PITFALLS.md).
 
 After simulated read-only works, change `APIKEY_PERM` or `SIMULATED` only when needed and with explicit trading risk review.
 
@@ -170,8 +218,8 @@ This demo has passed real browser authorization. When migrating to another front
 | Account balance example | GET | `/api/v5/account/balance` |
 | Order example | POST | `/api/v5/trade/order` |
 
-The demo workflows also use these OKX endpoints and should be validated during
-the next real integration pass:
+The demo workflows also use these OKX endpoints and are covered by the real
+integration checklist above:
 
 | Purpose | Method | Path |
 |---|---|---|

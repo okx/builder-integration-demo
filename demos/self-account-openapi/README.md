@@ -4,6 +4,10 @@ This demo is for **type 1** users: the user runs strategy code on a machine or s
 
 It does not use OAuth Broker or Fast API. The user's own API Key stays local.
 
+This demo workflow is written and tested for the OKX Global site. Other OKX
+sites may have different endpoint availability; use the OpenAPI Markdown docs
+as the source of truth before changing the site.
+
 ## Run With OKX Demo Trading
 
 ```bash
@@ -152,6 +156,8 @@ python strategy_demo.py order --inst-id BTC-USDT --side buy --ord-type limit --p
 - The OKX field name is `tag`; do not rename it to `ai_builder_code`.
 - To extend this demo to another OpenAPI endpoint, read
   [../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md](../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md).
+- To adapt this demo to another OKX site, check that site's endpoint
+  availability and request schemas in the OpenAPI Markdown docs first.
 
 Signing notes: [../../docs/OPENAPI_SIGNING.md](../../docs/OPENAPI_SIGNING.md).
 External OpenAPI references: [../../docs/REFERENCE_LINKS.md](../../docs/REFERENCE_LINKS.md).
