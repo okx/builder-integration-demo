@@ -1,79 +1,103 @@
-# OKX Fast API 接入 Demo
+# OKX AI Builder integration demos
 
-一个**可运行**的最小参考，演示第三方应用（Broker）如何用 OKX **Fast API** 为用户创建并托管 API Key，进而代表用户调用 OKX 接口（适合交易机器人 / 量化策略）。
+This repo keeps its existing name and covers three AI Builder integration paths. Start by choosing the user type, then read only the matching demo.
 
-> 给接入方的话：这个仓库设计成"**对 AI 友好**"——你可以把整个文件夹丢给 Cursor / Claude Code 等，让 AI 照着 `INTEGRATION_GUIDE.md` 帮你接入到自己的技术栈。后端示例用 Python，但规范是语言中立的。
+These demos are written and tested for the OKX Global site
+(`https://www.okx.com`). For other OKX sites, check endpoint availability and
+request schemas in the OpenAPI Markdown docs before adapting the demo.
 
-## 为什么是 Fast API（而不是普通 OAuth）
+## Choose Your Path
 
-交易机器人需要在用户**不在场**时持续运行。普通 OAuth 的 refresh_token 只有 3 天，用户几天不来就断了。Fast API 让你一次授权就拿到**长期有效的 API Key**，机器人可 7×24 跑。详见 `INTEGRATION_GUIDE.md`。
+| User type | Runs where | Uses whose account | Recommended demo |
+|---|---|---|---|
+| 1. Self account + local OpenAPI script | User-controlled machine or server | User's own OKX account | [demos/self-account-openapi](demos/self-account-openapi) |
+| 2. Self account + OKX Trade CLI/MCP | User machine or AI app | User's own OKX account | [demos/self-account-cli-mcp](demos/self-account-cli-mcp) |
+| 3. Third-party server + OKX Fast API/OpenAPI | Third-party service server | End users' OKX accounts | [demos/third-party-fastapi](demos/third-party-fastapi) |
 
-## 目录结构
+See [docs/USER_TYPES.md](docs/USER_TYPES.md) for the full decision tree. See
+[docs/REFERENCE_LINKS.md](docs/REFERENCE_LINKS.md) for external references and
+placeholders. For Type 3 implementation work, read the demo README,
+`INTEGRATION_GUIDE.md`, and `PITFALLS.md` before editing code.
 
-```
+## AI Builder Code
+
+Supported order-producing paths must attach **AI Builder Code** through the
+selected surface's supported attribution field or argument.
+
+- Type 1 OpenAPI commands pass AI Builder Code as `--ai-builder-code`.
+- Type 3 server code reads `AI_BUILDER_CODE` from server environment
+  configuration.
+- For direct OpenAPI requests, keep the OKX request field name as `tag`.
+- For OKX Trade CLI/MCP paths, use `--aiBuilderCode` or `aiBuilderCode` only
+  when the selected command or tool supports it.
+- Each demo README and skill defines the support scope for that demo. This repo
+  is not a complete reference for every OKX API that supports `tag`.
+
+Details: [docs/AI_BUILDER_CODE.md](docs/AI_BUILDER_CODE.md).
+Extension reference: [docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md](docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md).
+Reference links: [docs/REFERENCE_LINKS.md](docs/REFERENCE_LINKS.md).
+
+## Repo Layout
+
+```text
 okx-fastapi-broker-demo/
-├── README.md              ← 你在这里（人看的快速上手）
-├── docs/
-│   └── AI-Builder-接入指南.md ← 面向外部 AI Builder 的接入指南（鉴权前后端改造 + 按场景下单 demo + 反佣 tag）
-├── 接入指南.md            ← 接入指南（给人读的中文说明）
-├── INTEGRATION_GUIDE.md   ← 语言中立接入规范（AI / 开发者主要读这份）
-├── SIGNING.md             ← HMAC 签名多语言片段（Python / JS）+ 验证向量
-├── AGENTS.md              ← 给 AI 编程助手的规则
-├── errors.md              ← 错误码与排查
-├── TESTING.md             ← 测试说明（单测 + Mock 模式）
-├── CHANGELOG.md           ← 变更记录
-├── .env.example           ← 配置模板（复制为 .env 填写）
-├── requirements.txt        ← 运行依赖
-├── requirements-dev.txt    ← 测试依赖（pytest）
-├── backend/
-│   ├── app.py             ← Flask：换 token / 删建 Key / 查余额
-│   └── okx_client.py      ← 所有 OKX HTTP 调用 + HMAC 签名
-├── frontend/
-│   └── index.html         ← 授权页 + 回调处理（OKX Web SDK）
-└── tests/                 ← 单元测试（含 Mock 模式，无需真实凭证）
++-- README.md
++-- AGENTS.md
++-- docs/
+|   +-- USER_TYPES.md
+|   +-- AI_BUILDER_CODE.md
+|   +-- AI_BUILDER_CODE_SUPPORT_REFERENCE.md
+|   +-- OPENAPI_SIGNING.md
+|   +-- REFERENCE_LINKS.md
++-- demos/
+    +-- self-account-openapi/
+    +-- self-account-cli-mcp/
+    |   +-- self-account-okx-trade-cli/
+    |   +-- self-account-okx-mcp/
+    +-- third-party-fastapi/
 ```
 
-## 前置条件
+Type 1 and Type 3 keep `.env.example` files in the repo so a user's AI assistant can read the required configuration fields and generate the right local setup.
+The `.env` files created from these examples are for demo use only. They contain sensitive configuration fields, so production implementations should keep real values in a secure secret manager or equivalent protected storage.
+Type 2 CLI/MCP skills do not use a demo `.env` file; pass AI Builder Code directly through the supported CLI flag or MCP tool argument.
 
-接入前需联系 BD 申请 **OAuth Broker** 并开通 **Fast API 权限 + IP 白名单**，拿到 `client_id` / `client_secret`，并把 `redirect_uri`（本 demo 默认 `http://localhost:8000/`）登记进 OKX 白名单。完整申请步骤见 `接入指南.md`，以及对外文档（待补链接：TODO）。
+## Quick Starts
 
-## 运行
+Self account + OpenAPI script:
 
 ```bash
-cd okx-fastapi-broker-demo
-cp .env.example .env          # 填 CLIENT_ID / CLIENT_SECRET / REDIRECT_URI / APIKEY_PASSPHRASE
-pip install -r requirements.txt
-python backend/app.py
-# 打开 http://localhost:8000
+cd demos/self-account-openapi
+test -f .env || cp .env.example .env
+# Edit .env with OKX demo trading credentials.
+test -d .tmpvenv || python3 -m venv .tmpvenv
+source .tmpvenv/bin/activate
+python -m pip install -r requirements.txt
+python strategy_demo.py balance
+python strategy_demo.py spot-open --inst-id BTC-USDT --quote-amount 10 --ai-builder-code <AI_BUILDER_CODE>
+python strategy_demo.py spot-close --inst-id BTC-USDT --quote-amount 10 --ai-builder-code <AI_BUILDER_CODE>
+python strategy_demo.py swap-open --inst-id BTC-USDT-SWAP --quote-amount 10 --ai-builder-code <AI_BUILDER_CODE>
+python strategy_demo.py swap-close --inst-id BTC-USDT-SWAP --mgn-mode cross --ai-builder-code <AI_BUILDER_CODE>
 ```
 
-默认 **模拟盘 + 只读权限**，安全。需要实盘/下单再改 `.env` 里的 `SIMULATED` / `APIKEY_PERM`。
+Self account + OKX Trade CLI/MCP skills:
 
-## 操作流程
+```bash
+cd demos/self-account-cli-mcp
+# Read README.md, then choose self-account-okx-trade-cli or self-account-okx-mcp.
+```
 
-1. 点「授权并连接 OKX」→ 跳转 OKX 授权页（确认是"快捷 API"权限）→ 授权后回跳本页。
-2. 后端自动完成：换 token → 删旧 Key → 建 Key → 存储。页面显示打码后的 apiKey。
-3. 点「查询余额」→ 后端用 API Key 签名调用 `GET /api/v5/account/balance`，展示返回。
+Third-party server + Fast API:
 
-## 安全须知
+```bash
+cd demos/third-party-fastapi
+test -f .env || cp .env.example .env
+# Edit .env with OAuth Broker credentials, passphrase, and AI_BUILDER_CODE if placing orders.
+test -d .tmpvenv || python3 -m venv .tmpvenv
+source .tmpvenv/bin/activate
+python -m pip install -r requirements.txt
+python backend/app.py
+```
 
-- `client_secret`、`secretKey`、`passphrase` **只在后端**，不进前端 / 日志 / git。
-- 本 demo 用进程内存储 Key **仅为演示**；生产必须按用户隔离、加密落库。
-- `.env` 不要提交到版本库。
-
-## 测试
-
-仓库带有单元测试，并提供 **Mock 模式**：无需真实 `client_id` / `client_secret`，也能跑通换 token → 删建 Key → 查余额的完整流程，方便快速验证接入逻辑。运行方式与用例细节见 `TESTING.md`。
-
-## 文档索引
-
-| 文档 | 受众 | 用途 |
-|---|---|---|
-| `README.md` | 人（接入方） | 快速上手、运行与目录导航（你在这里） |
-| `AI-Builder-接入指南.md` | 外部 AI Builder 接入方（人读） | 把鉴权（前后端改造）与下单（按场景 demo，含反佣 BrokerCode tag）集成到你自己的服务 |
-| `INTEGRATION_GUIDE.md` | AI / 开发者 | 语言中立的精确接入规范（改写到其它技术栈时主要读这份） |
-| `SIGNING.md` | AI / 开发者 | HMAC 签名多语言片段（Python / JS）+ known-answer 验证向量 |
-| `AGENTS.md` | AI 编程助手 | 帮用户接入时必须遵守的规则与易踩坑 |
-| `errors.md` | 人 / AI | 错误码与排查 |
-| `TESTING.md` | 人 / AI | 测试说明（单测 + Mock 模式） |
-| `CHANGELOG.md` | 人 / AI | 变更记录 |
+After connecting through the browser, fill the spot/swap instrument and quote
+amount fields, then use the four demo workflow buttons: Spot Open, Spot Close,
+Swap Open, and Swap Close.
