@@ -88,13 +88,13 @@ WebSocket schema first. Request-side `tag` operations include:
 OKX Trade CLI uses `--aiBuilderCode <code>`. The CLI skill shows a simple demo
 order:
 [../demos/self-account-cli-mcp/self-account-okx-trade-cli/SKILL.md](../demos/self-account-cli-mcp/self-account-okx-trade-cli/SKILL.md).
-Use a CLI version whose command help exposes `--aiBuilderCode` on the selected
-command. If the flag is absent, upgrade before placing an attributed order
-through the CLI path.
+Use a CLI version that satisfies the selected CLI skill's minimum version. If
+the selected command help does not expose `--aiBuilderCode`, warn before placing
+an order and do not claim AI Builder Code attribution for that command.
 The minimum supported CLI version is tracked in the CLI skill as
 `<OKX_TRADE_CLI_MIN_VERSION_FOR_THIS_SKILL>` until the OKX Trade CLI release is
-published; command help/schema support remains the blocking check for
-AI Builder Code attribution.
+published; command help/schema support is a warning check for AI Builder Code
+attribution.
 
 Supported CLI command forms:
 

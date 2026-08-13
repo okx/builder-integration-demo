@@ -36,9 +36,9 @@ AI Builder Code is an attribution value, not an OKX credential. Use 1-16 alphanu
 OKX records AI Builder Code on the final order when the selected backend supports it.
 
 CLI and MCP support scopes are independent. Check the selected skill before
-running a command or tool. For CLI, if the installed command does not expose
-`--aiBuilderCode`, upgrade or switch surfaces before placing an attributed
-order.
+running a command or tool. For CLI, use the minimum CLI version required by the
+skill. If the installed command does not expose `--aiBuilderCode`, warn the user
+before placing an order and do not claim AI Builder Code attribution.
 
 ### OKX Trade CLI
 
@@ -50,10 +50,12 @@ Pass AI Builder Code as `--aiBuilderCode` only on supported order-producing CLI
 commands. The CLI skill includes spot/swap open-close demo workflows that show
 where to place the flag.
 
-The CLI skill starts with a version and capability check: record `okx --version`
-and verify the selected order-producing command help exposes `--aiBuilderCode`.
-The minimum supported CLI version is kept as a placeholder until the CLI release
-is published, and represents the full CLI feature set required by the skill.
+The CLI skill starts with a version check and an AI Builder Code warning check:
+record `okx --version`, compare it with the skill's minimum supported CLI
+version, and inspect whether the selected order-producing command help exposes
+`--aiBuilderCode`. The minimum supported CLI version is kept as a placeholder
+until the CLI release is published, and represents the full CLI feature set
+required by the skill.
 
 Do not rely on setting `AI_BUILDER_CODE` only as a shell environment variable.
 The final `okx` command must include the value as

@@ -24,7 +24,7 @@ tracking and attribution. Do not set it only as a shell environment variable:
 the CLI reads the command flag, and another skill or terminal session may use a
 different AI Builder Code.
 
-## CLI Version And Capability Check
+## CLI Version And AI Builder Code Check
 
 Before any credential check or order workflow, verify the installed CLI:
 
@@ -47,18 +47,22 @@ After the release, replace it with the first CLI version that supports all
 features required by these workflows, including `--aiBuilderCode` on the
 required order-producing commands.
 
-Use both checks:
+Use both checks, with different severity:
 
-- Record `okx --version` for diagnostics.
-- For the selected workflow, the target order-producing command's help must
-  expose `--aiBuilderCode`.
+- Version check is required. Record `okx --version` and compare it with the
+  published minimum version.
+- AI Builder Code check is a warning check. For the selected workflow, inspect
+  whether the target order-producing command's help exposes `--aiBuilderCode`.
 
 If `okx` is missing, stop and ask the user to install OKX Trade CLI. If the
-installed CLI is older than the published minimum version, or if the selected
-command help does not expose `--aiBuilderCode`, stop before placing an order and
-ask the user to upgrade the CLI or use the self-account OpenAPI demo instead.
-Do not place an attributed CLI order through a command that cannot accept
-`--aiBuilderCode`.
+installed CLI is older than the published minimum version, stop before placing
+an order and ask the user to upgrade the CLI.
+
+If the selected command help does not expose `--aiBuilderCode`, warn the user
+before placing an order. Do not claim that the order will be attributed through
+AI Builder Code unless the command accepts the flag. If the user chooses to
+continue with that CLI command anyway, do not invent another flag or pass raw
+`tag`.
 
 ## Demo Order Workflows
 
@@ -255,13 +259,16 @@ OAuth login does not override a broken API-key profile.
 ## Workflow
 
 1. Confirm the user wants the CLI path.
-2. Run the CLI version and capability check above.
-3. If the CLI is missing, older than the published minimum version, or missing
-   `--aiBuilderCode` on the selected command, ask the user before installing or
-   upgrading it.
+2. Run the CLI version and AI Builder Code check above.
+3. If the CLI is missing or older than the published minimum version, ask the
+   user before installing or upgrading it.
 4. Run the credential and profile check above and choose mode flags.
-5. For supported order-producing commands, validate the current skill's AI Builder Code and pass it explicitly with `--aiBuilderCode`.
-6. If the selected CLI command does not support `--aiBuilderCode`, tell the user this CLI path cannot guarantee AI Builder Code attribution for that command.
+5. For order-producing commands that expose `--aiBuilderCode`, validate the
+   current skill's AI Builder Code and pass it explicitly with
+   `--aiBuilderCode`.
+6. If the selected CLI command does not expose `--aiBuilderCode`, warn the user
+   that this CLI command cannot guarantee AI Builder Code attribution; do not
+   pass raw `tag` or any alternate flag.
 7. Use demo mode unless the user explicitly requests live trading.
 8. Before any order write, summarize the final order parameters and wait for explicit confirmation.
 9. After an order write, verify with a read-only CLI command such as orders, fills, or positions.
