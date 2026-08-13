@@ -244,9 +244,9 @@ async function runConnect(code, domain) {
 }
 
 document.getElementById('btn-auth').addEventListener('click', () => {
-  // MOCK mode has no real OAuth callback; use a fake code to exercise backend flow.
+  // Test-only path has no real OAuth callback.
   if (CONFIG.mock) {
-    log('MOCK mode: skipping real authorization and connecting with fake code');
+    log('Test-only path: skipping real authorization and connecting with fake code');
     runConnect('mock-code', null);
     return;
   }

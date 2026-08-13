@@ -225,4 +225,4 @@ node tests/verify_frontend_workflow_state.js
 node tests/verify_js_sign.js
 ```
 
-See [TESTING.md](TESTING.md) for mock mode and real integration checks, and [PITFALLS.md](PITFALLS.md) for migration pitfalls and error-code checks.
+See [TESTING.md](TESTING.md) for local automated tests and real integration checks, and [PITFALLS.md](PITFALLS.md) for migration pitfalls and error-code checks.
