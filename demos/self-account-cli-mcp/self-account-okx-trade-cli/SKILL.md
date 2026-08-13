@@ -24,6 +24,41 @@ tracking and attribution. Do not set it only as a shell environment variable:
 the CLI reads the command flag, and another skill or terminal session may use a
 different AI Builder Code.
 
+## CLI Version And Capability Check
+
+Before any credential check or order workflow, verify the installed CLI:
+
+```bash
+which okx
+okx --version
+okx spot place --help
+okx swap place --help
+okx swap close --help
+```
+
+Minimum CLI version for AI Builder Code attribution:
+
+```text
+<OKX_TRADE_CLI_AI_BUILDER_CODE_MIN_VERSION>
+```
+
+This version is a placeholder until the OKX Trade CLI release is published.
+After the release, replace it with the first CLI version that supports
+`--aiBuilderCode` on the required order-producing commands.
+
+Use both checks:
+
+- Record `okx --version` for diagnostics.
+- For the selected workflow, the target order-producing command's help must
+  expose `--aiBuilderCode`.
+
+If `okx` is missing, stop and ask the user to install OKX Trade CLI. If the
+installed CLI is older than the published minimum version, or if the selected
+command help does not expose `--aiBuilderCode`, stop before placing an order and
+ask the user to upgrade the CLI or use the self-account OpenAPI demo instead.
+Do not place an attributed CLI order through a command that cannot accept
+`--aiBuilderCode`.
+
 ## Demo Order Workflows
 
 Use demo mode for the example workflows:
@@ -219,8 +254,10 @@ OAuth login does not override a broken API-key profile.
 ## Workflow
 
 1. Confirm the user wants the CLI path.
-2. Check that `okx` is installed and inspect the relevant command help/schema.
-3. If the CLI is missing or stale, ask the user before installing or upgrading it.
+2. Run the CLI version and capability check above.
+3. If the CLI is missing, older than the published minimum version, or missing
+   `--aiBuilderCode` on the selected command, ask the user before installing or
+   upgrading it.
 4. Run the credential and profile check above and choose mode flags.
 5. For supported order-producing commands, validate the current skill's AI Builder Code and pass it explicitly with `--aiBuilderCode`.
 6. If the selected CLI command does not support `--aiBuilderCode`, tell the user this CLI path cannot guarantee AI Builder Code attribution for that command.

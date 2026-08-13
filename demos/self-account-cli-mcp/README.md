@@ -50,6 +50,11 @@ Pass AI Builder Code as `--aiBuilderCode` only on supported order-producing CLI
 commands. The CLI skill includes spot/swap open-close demo workflows that show
 where to place the flag.
 
+The CLI skill starts with a version and capability check: record `okx --version`
+and verify the selected order-producing command help exposes `--aiBuilderCode`.
+The minimum supported CLI version is kept as a placeholder until the CLI release
+is published.
+
 Do not rely on setting `AI_BUILDER_CODE` only as a shell environment variable.
 The final `okx` command must include the value as
 `--aiBuilderCode <AI_BUILDER_CODE>`.
