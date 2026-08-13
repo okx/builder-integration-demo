@@ -53,7 +53,7 @@ where to place the flag.
 The CLI skill starts with a version and capability check: record `okx --version`
 and verify the selected order-producing command help exposes `--aiBuilderCode`.
 The minimum supported CLI version is kept as a placeholder until the CLI release
-is published.
+is published, and represents the full CLI feature set required by the skill.
 
 Do not rely on setting `AI_BUILDER_CODE` only as a shell environment variable.
 The final `okx` command must include the value as

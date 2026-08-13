@@ -36,15 +36,16 @@ okx swap place --help
 okx swap close --help
 ```
 
-Minimum CLI version for AI Builder Code attribution:
+Minimum CLI version for this skill:
 
 ```text
-<OKX_TRADE_CLI_AI_BUILDER_CODE_MIN_VERSION>
+<OKX_TRADE_CLI_MIN_VERSION_FOR_THIS_SKILL>
 ```
 
 This version is a placeholder until the OKX Trade CLI release is published.
-After the release, replace it with the first CLI version that supports
-`--aiBuilderCode` on the required order-producing commands.
+After the release, replace it with the first CLI version that supports all
+features required by these workflows, including `--aiBuilderCode` on the
+required order-producing commands.
 
 Use both checks:
 
