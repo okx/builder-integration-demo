@@ -53,9 +53,10 @@ Check this folder for `.env` and `.tmpvenv`, create only the missing files or
 directories shown above, install dependencies inside `.tmpvenv`, and then start
 the backend from this folder.
 
-Default settings are **simulated trading + read-only permission**. To run the
-demo order workflows in simulation, set `APIKEY_PERM=trade` and configure
-`AI_BUILDER_CODE` in `.env`.
+Default settings are **simulated trading + read-only permission**. User-facing
+tests should use real OKX OAuth/Fast API integration with `SIMULATED=1`, not
+canned responses. To run the demo order workflows in simulation, set
+`APIKEY_PERM=trade` and configure `AI_BUILDER_CODE` in `.env`.
 
 Stop the server with `Ctrl+C`. To leave the local Python environment:
 

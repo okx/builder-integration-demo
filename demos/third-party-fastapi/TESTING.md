@@ -6,6 +6,8 @@ credentials, and real integration with a test Broker.
 The real integration checklist is written for the OKX Global site. For another
 OKX site, check endpoint availability and request schemas in the OpenAPI
 Markdown docs before adapting the checklist.
+User-facing validation should use real OKX OAuth/Fast API integration with
+`SIMULATED=1`; local canned responses are only for automated tests.
 
 - (a) Local automated tests: no network; verify signing, backend routes, frontend
   workflow state, and canned OKX-like responses through pytest and Node checks.
