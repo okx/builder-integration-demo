@@ -140,7 +140,8 @@ Order tool call:
     "tdMode": "cross",
     "side": "buy",
     "ordType": "market",
-    "sz": "<CONTRACT_COUNT>",
+    "sz": "<QUOTE_USDT>",
+    "tgtCcy": "quote_ccy",
     "aiBuilderCode": "<AI_BUILDER_CODE>",
     "simulatedTrading": true
   }
@@ -154,10 +155,11 @@ The MCP tool schema requires explicit `tdMode`; use `"cross"` for account modes
 `"2"`, `"3"`, and `"4"`, or use `"isolated"` when the user intends isolated
 margin.
 Set `<QUOTE_USDT>` to a small target notional, such as `10`, that is covered by
-trading-account USDT balance. Compute `<CONTRACT_COUNT>` from `ctVal`, ticker
-price, `minSz`, and `lotSz`, then send that contract count as `"sz"`. Do not
-send `"tgtCcy"` for this swap workflow unless the selected MCP tool schema
-explicitly documents quote-sized swap orders.
+trading-account USDT balance. Send it as `"sz"` with `"tgtCcy": "quote_ccy"`, and
+the MCP backend converts the USDT notional to a valid contract count (using
+`ctVal`, ticker price, `minSz`, and `lotSz`) before placing the order. The
+preflight `market_get_ticker` and `market_get_instruments` reads are only for
+showing the user an approximate contract count before the order write.
 
 Verify:
 

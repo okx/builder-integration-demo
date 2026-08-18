@@ -150,6 +150,9 @@ python strategy_demo.py order --inst-id BTC-USDT --side buy --ord-type limit --p
 - Do not commit `.env`.
 - Do not put API secrets into frontend code or logs.
 - Use separate OKX API keys for demo trading and live trading.
+- AI Builder Code is assigned by OKX when you register as an AI Builder; use the
+  value you were given and do not make one up. Format: 1-16 alphanumeric
+  characters; it is not a secret.
 - This demo's order-producing commands must require `--ai-builder-code` and
   send that value as OKX `tag` on `POST /api/v5/trade/order` and
   `POST /api/v5/trade/close-position`.

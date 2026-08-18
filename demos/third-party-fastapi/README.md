@@ -74,12 +74,17 @@ rm -rf .tmpvenv
 
 Read [.env.example](.env.example) first. It intentionally lives in the repo so the user's AI assistant can understand which values are required.
 
+`CLIENT_ID` and `CLIENT_SECRET` are issued by OKX after OAuth Broker approval
+(Fast API permission + IP allowlist); use the values OKX sent you.
+
 Local configuration secrets must go only into `.env` or a real secrets manager:
 
 - `CLIENT_SECRET`
 - `APIKEY_PASSPHRASE`
 
 `AI_BUILDER_CODE` is not a secret. The backend sends it as OKX order `tag`.
+`AI_BUILDER_CODE` is assigned by OKX when you register as an AI Builder; use the
+value you were given and do not make one up. It is 1-16 alphanumeric characters.
 
 ## Fast API Key Storage
 
