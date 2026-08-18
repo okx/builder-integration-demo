@@ -1,18 +1,25 @@
 # Third-party Fast API Testing Guide
 
-This demo has three test layers, from local checks without Broker credentials to real integration with a test Broker.
+This demo has two test layers: local automated checks without Broker
+credentials, and real integration with a test Broker.
 
 The real integration checklist is written for the OKX Global site. For another
 OKX site, check endpoint availability and request schemas in the OpenAPI
 Markdown docs before adapting the checklist.
+User-facing validation should use real OKX OAuth/Fast API integration with
+`SIMULATED=1`; local canned responses are only for automated tests.
 
-- (a) Unit tests: no network; verify signing and timestamp logic with known-answer vectors.
-- (b) Mock mode: no real HTTP; use canned OKX-like responses to run the frontend/backend flow locally.
-- (c) Real integration checklist: after receiving test Broker credentials, validate the simulated trading flow step by step. Integration pitfalls and error codes are centralized in [PITFALLS.md](PITFALLS.md).
+- (a) Local automated tests: no network; verify signing, backend routes, frontend
+  workflow state, and canned OKX-like responses through pytest and Node checks.
+- (b) Real integration checklist: after receiving test Broker credentials,
+  validate the simulated trading flow step by step. Integration pitfalls and
+  error codes are centralized in [PITFALLS.md](PITFALLS.md).
 
-Security note: tests and mock mode do not use real secrets. `mock-secret` is a placeholder string, not a credential. `secretKey` and `passphrase` must never appear in frontend responses, logs, or git.
+Security note: automated tests do not use real secrets. `mock-secret` is a
+placeholder string, not a credential. `secretKey` and `passphrase` must never
+appear in frontend responses, logs, or git.
 
-## A. Local Unit And Mock Tests
+## A. Local Automated Tests
 
 Install dev dependencies and run:
 
@@ -61,67 +68,7 @@ Expected result: the Node.js signatures match the Python baseline and the comman
 
 This only proves the language snippets are algorithmically equivalent. The Python demo has passed real integration; a migrated implementation should still run the real integration checklist below.
 
-## B. Browser Smoke Test In Mock Mode
-
-Start the backend with `MOCK=1`. In this mode, `exchange_token`, `delete_oauth_apikey`, `create_oauth_apikey`, and `get_account_balance` do not send real HTTP. They return canned OKX-like responses.
-
-```bash
-cd demos/third-party-fastapi
-test -d .tmpvenv || python3 -m venv .tmpvenv
-source .tmpvenv/bin/activate
-python -m pip install -r requirements.txt
-APIKEY_PASSPHRASE=MockPassphrase1! APIKEY_PERM=trade AI_BUILDER_CODE=ABCD1234 MOCK=1 python backend/app.py
-# open http://localhost:8000
-```
-
-The page header shows `MOCK` in this mode.
-
-The page still references the OKX SDK CDN, but MOCK mode bypasses real OAuth.
-For a fully local backend flow, call the backend directly:
-
-```bash
-# 1. Connect with any fake code.
-curl -s -c cookies.txt -X POST http://localhost:8000/api/connect \
-     -H 'Content-Type: application/json' -d '{"code":"mock-code"}'
-
-# 2. Query balance with the session cookie.
-curl -s -b cookies.txt http://localhost:8000/api/balance
-
-# 3. Fill workflow fields from mocked account config.
-curl -s -b cookies.txt http://localhost:8000/api/demo-workflow-fields
-
-# 4. Verify the demo workflow routes inject AI Builder Code as OKX tag.
-curl -s -b cookies.txt -X POST http://localhost:8000/api/spot/open \
-     -H 'Content-Type: application/json' \
-     -d '{"instId":"BTC-USDT","quoteAmount":"10"}'
-curl -s -b cookies.txt -X POST http://localhost:8000/api/spot/close \
-     -H 'Content-Type: application/json' \
-     -d '{"instId":"BTC-USDT","quoteAmount":"10"}'
-curl -s -b cookies.txt -X POST http://localhost:8000/api/swap/open \
-     -H 'Content-Type: application/json' \
-     -d '{"instId":"BTC-USDT-SWAP","quoteAmount":"10","tdMode":"cross","posSide":"long"}'
-curl -s -b cookies.txt -X POST http://localhost:8000/api/swap/close \
-     -H 'Content-Type: application/json' \
-     -d '{"instId":"BTC-USDT-SWAP","mgnMode":"cross","posSide":"long"}'
-```
-
-In mock mode, `/api/demo-workflow-fields` should return `acctLv=3`,
-`posMode=long_short_mode`, spot `tdMode=cross`, swap `tdMode=cross`,
-`mgnMode=cross`, and `posSide=long`. If mocked or real account config is
-changed to `acctLv=1`, the helper should still return spot fields with
-`tdMode=cash` and mark swap workflows unavailable. Each order workflow response
-should have `ok=true`, `sent_order.tag=ABCD1234`, and
-`raw.data[0].tag=ABCD1234`.
-
-The swap workflow examples use `BTC-USDT-SWAP`. The demo supports
-linear swap instruments only; inverse USD swap instruments such as
-`BTC-USD-SWAP` should return a clear unsupported-instrument error before order
-placement.
-
-For real OAuth integration, leave `MOCK` unset. Use `MOCK=1` only for local
-backend checks without real OAuth.
-
-## C. Real OAuth Integration Checklist
+## B. Real OAuth Integration Checklist
 
 Prerequisites:
 

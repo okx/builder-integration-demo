@@ -31,8 +31,9 @@ from urllib.parse import urlencode
 import requests
 
 
-# MOCK=1 makes external-call helpers return canned OKX-like responses.
-# The environment is read at call time so tests can toggle mock mode safely.
+# Test-only override. MOCK=1 makes external-call helpers return canned OKX-like
+# responses for automated tests; do not add it to .env or use it as a demo path.
+# The environment is read at call time so tests can toggle this safely.
 def _mock_enabled() -> bool:
     return os.environ.get("MOCK", "") == "1"
 

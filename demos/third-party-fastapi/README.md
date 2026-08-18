@@ -53,9 +53,10 @@ Check this folder for `.env` and `.tmpvenv`, create only the missing files or
 directories shown above, install dependencies inside `.tmpvenv`, and then start
 the backend from this folder.
 
-Default settings are **simulated trading + read-only permission**. To run the
-demo order workflows in simulation, set `APIKEY_PERM=trade` and configure
-`AI_BUILDER_CODE` in `.env`.
+Default settings are **simulated trading + read-only permission**. User-facing
+tests should use real OKX OAuth/Fast API integration with `SIMULATED=1`, not
+canned responses. To run the demo order workflows in simulation, set
+`APIKEY_PERM=trade` and configure `AI_BUILDER_CODE` in `.env`.
 
 Stop the server with `Ctrl+C`. To leave the local Python environment:
 
@@ -73,12 +74,17 @@ rm -rf .tmpvenv
 
 Read [.env.example](.env.example) first. It intentionally lives in the repo so the user's AI assistant can understand which values are required.
 
+`CLIENT_ID` and `CLIENT_SECRET` are issued by OKX after OAuth Broker approval
+(Fast API permission + IP allowlist); use the values OKX sent you.
+
 Local configuration secrets must go only into `.env` or a real secrets manager:
 
 - `CLIENT_SECRET`
 - `APIKEY_PASSPHRASE`
 
 `AI_BUILDER_CODE` is not a secret. The backend sends it as OKX order `tag`.
+`AI_BUILDER_CODE` is assigned by OKX when you register as an AI Builder; use the
+value you were given and do not make one up. It is 1-16 alphanumeric characters.
 
 ## Fast API Key Storage
 
@@ -225,4 +231,4 @@ node tests/verify_frontend_workflow_state.js
 node tests/verify_js_sign.js
 ```
 
-See [TESTING.md](TESTING.md) for mock mode and real integration checks, and [PITFALLS.md](PITFALLS.md) for migration pitfalls and error-code checks.
+See [TESTING.md](TESTING.md) for local automated tests and real integration checks, and [PITFALLS.md](PITFALLS.md) for migration pitfalls and error-code checks.

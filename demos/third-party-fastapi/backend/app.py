@@ -40,7 +40,7 @@ REDIRECT_URI      = os.environ.get("REDIRECT_URI", "http://localhost:8000/")
 SCOPE             = "fast_api"
 OKX_BASE_URL      = (os.environ.get("OKX_BASE_URL", "https://www.okx.com") or "https://www.okx.com").rstrip("/")
 SIMULATED         = os.environ.get("SIMULATED", "1") == "1"        # Safe default.
-MOCK              = os.environ.get("MOCK", "") == "1"              # MOCK=1 avoids real HTTP.
+MOCK              = os.environ.get("MOCK", "") == "1"              # Test-only; not a demo config.
 APIKEY_PASSPHRASE = os.environ.get("APIKEY_PASSPHRASE", "")
 APIKEY_LABEL      = os.environ.get("APIKEY_LABEL", "demo")
 APIKEY_PERM       = os.environ.get("APIKEY_PERM", "read_only")     # Safe default.
