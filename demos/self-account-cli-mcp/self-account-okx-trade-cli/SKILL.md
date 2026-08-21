@@ -42,10 +42,6 @@ Minimum CLI version for this skill:
 1.4.4
 ```
 
-`1.4.4` is the first OKX Trade CLI version that supports AI Builder Code
-(`--aiBuilderCode`) on the required order-producing commands. Older versions
-cannot attribute orders through AI Builder Code.
-
 Use both checks, with different severity:
 
 - Version check is required. Record `okx --version` and compare it with the
