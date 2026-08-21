@@ -53,8 +53,7 @@ where to place the flag.
 The CLI skill starts with a version check and an AI Builder Code warning check:
 record `okx --version`, compare it with the skill's minimum supported CLI
 version, and inspect whether the selected order-producing command help exposes
-`--aiBuilderCode`. The minimum supported CLI version is `1.4.4`, the first
-release that supports AI Builder Code on the required order-producing commands.
+`--aiBuilderCode`. The minimum supported CLI version is `1.4.4`.
 
 Do not rely on setting `AI_BUILDER_CODE` only as a shell environment variable.
 The final `okx` command must include the value as
