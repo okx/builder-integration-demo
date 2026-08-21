@@ -996,5 +996,8 @@ def swap_close():
 
 
 if __name__ == "__main__":
-    # debug=True is for local demo only. Disable it in production.
-    app.run(host="127.0.0.1", port=8000, debug=True)
+    # Debug is off by default. Enable only for local debugging with FLASK_DEBUG=1;
+    # never enable it in production (the Werkzeug debugger allows code execution).
+    # For production, serve with a WSGI server such as gunicorn instead of app.run().
+    debug = os.environ.get("FLASK_DEBUG", "") == "1"
+    app.run(host="127.0.0.1", port=8000, debug=debug)

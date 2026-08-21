@@ -199,6 +199,7 @@ def _mock_positions(inst_id: str = None) -> dict:
         "data": [{
             "instId": inst_id or "BTC-USDT-SWAP",
             "posSide": "long",
+            "mgnMode": "cross",
             "pos": "0.01",
             "avgPx": "100000",
             "upl": "0",
@@ -407,7 +408,7 @@ def place_order(base_url: str, api_key: str, secret_key: str, passphrase: str,
         body_obj["reduceOnly"] = "true"
     if tag not in (None, ""):
         body_obj["tag"] = tag
-    # Use the same serialized body for signing and sending.
+    # Default json.dumps (with spaces) is intentional; the same serialized string is signed and sent.
     body = json.dumps(body_obj)
     ts = _now_iso_ms()
     headers = {
@@ -441,6 +442,7 @@ def close_position(base_url: str, api_key: str, secret_key: str, passphrase: str
         body_obj["posSide"] = pos_side
     if tag not in (None, ""):
         body_obj["tag"] = tag
+    # Default json.dumps (with spaces) is intentional; the same serialized string is signed and sent.
     body = json.dumps(body_obj)
     ts = _now_iso_ms()
     headers = {

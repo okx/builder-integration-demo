@@ -30,6 +30,7 @@ source .tmpvenv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest
 node tests/verify_frontend_workflow_state.js
+node tests/verify_js_sign.js
 ```
 
 Expected result: all tests pass.
