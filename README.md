@@ -15,8 +15,8 @@ request schemas in the OpenAPI Markdown docs before adapting the demo.
 | 3. Third-party server + OKX Fast API/OpenAPI | Third-party service server | End users' OKX accounts | [demos/third-party-fastapi](demos/third-party-fastapi) |
 
 See [docs/USER_TYPES.md](docs/USER_TYPES.md) for the full decision tree. See
-[docs/REFERENCE_LINKS.md](docs/REFERENCE_LINKS.md) for external references and
-placeholders. For Type 3 implementation work, read the demo README,
+[docs/REFERENCE_LINKS.md](docs/REFERENCE_LINKS.md) for external references. For
+Type 3 implementation work, read the demo README,
 `INTEGRATION_GUIDE.md`, and `PITFALLS.md` before editing code.
 
 ## AI Builder Code

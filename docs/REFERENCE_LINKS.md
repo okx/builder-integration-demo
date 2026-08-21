@@ -1,7 +1,7 @@
 # Reference Links
 
 This document points humans and AI assistants to external references used with
-this demo repo. Some links are placeholders until the public pages are ready.
+this demo repo.
 
 This is the only public index for external reference links. Other repo docs
 should link here instead of duplicating external documentation links. Runtime
@@ -14,7 +14,7 @@ or localhost URLs, may stay in the workflow document where they are used.
 |---|---|---|
 | OpenAPI global site | `https://www.okx.com/docs-v5/en/#overview` | Reading OKX Global OpenAPI docs in a browser. |
 | OpenAPI Markdown repository | `https://github.com/okx/ai-builder-openapi-md` | Letting an AI assistant check site support, request schemas, parameter tables, and examples. |
-| AI Builder integration introduction | `<AI_BUILDER_INTEGRATION_INTRO_URL>` | Understanding the three user types before choosing a demo path. |
+| AI Builder integration introduction | `https://www.okx.com/help/ai-builder-program-integration-guide` | Understanding the three user types before choosing a demo path. |
 | Agent Trade Kit install guide | `https://www.okx.com/agent-tradekit` | Installing or connecting the OKX Trade CLI and OKX MCP surfaces. |
 | Agent Trade Kit code repository | `https://github.com/okx/agent-trade-kit` | CLI implementation reference for `aiBuilderCode` support. |
 
@@ -35,6 +35,3 @@ or localhost URLs, may stay in the workflow document where they are used.
 - For AI Builder Code support planning, use
   [AI_BUILDER_CODE_SUPPORT_REFERENCE.md](AI_BUILDER_CODE_SUPPORT_REFERENCE.md)
   as the local extension reference.
-
-Do not treat placeholders as runnable links. Replace them with the actual URLs
-when those pages are available.
