@@ -1,33 +1,73 @@
-# AGENTS.md — 给 AI 编程助手的接入说明
+# AGENTS.md - AI Builder repo rules
 
-你正在帮用户把 **OKX Fast API** 接入到他们自己的项目（通常是交易机器人 / 量化策略）。本仓库是参考实现，请据此帮用户改写到他们的技术栈。先读 `INTEGRATION_GUIDE.md`（语言中立规范），代码参考 `backend/` 与 `frontend/`。
+You are helping users integrate OKX AI Builder. First identify the user's type, then read the matching demo. By default, do not read or copy another demo's implementation unless the user explicitly asks to compare paths.
 
-## 必须遵守的硬规则
+## User Type Routing
 
-1. **绝不把 `client_secret`、`secretKey`、`passphrase` 放到前端**（HTML/JS/移动端），也不写进日志、不提交到 git。它们只能在后端使用。
-2. **不要凭空编造接口**。只用 `INTEGRATION_GUIDE.md`「端点速查」中列出的路径与参数。不确定时让用户核对官方开发者文档，不要猜。
-3. **Fast API 只支持授权码模式**（`access_type=offline`、`scope=fast_api`），**不要**用 PKCE 实现 Fast API。
-4. **创建 Key 前必须先调删除接口**（避免 50116）；删除报 `59506`（不存在）属正常，忽略并继续。
-5. **passphrase 由用户提供**，不要替用户生成/硬编码口令。要求：8-32 位，含大写+小写+数字+特殊字符各至少一个。
-6. **默认安全档位**：`perm=read_only`、`SIMULATED=1`（模拟盘）。只有用户明确要下单/上实盘时才改 `trade` / `SIMULATED=0`，并提示风险。
-7. **API Key 要加密落库、按用户隔离**。参考实现用进程内内存仅为演示，生产不可照搬。
+1. **Self account + local OpenAPI script**
+   - Read `demos/self-account-openapi/README.md`.
+   - Use when the user runs their own strategy on a user-controlled machine or server and trades only their own OKX account.
+   - User configures their own OKX API Key locally.
+   - Do not use OAuth Broker or Fast API.
+   - Use `docs/OPENAPI_SIGNING.md` for HMAC signing rules.
 
-## 帮用户接入时的标准步骤
+2. **Self account + OKX Trade CLI/MCP**
+   - Read `demos/self-account-cli-mcp/README.md`.
+   - Use `demos/self-account-cli-mcp/self-account-okx-trade-cli/SKILL.md` for local `okx` command workflows.
+   - Use `demos/self-account-cli-mcp/self-account-okx-mcp/SKILL.md` for app-connected MCP workflows.
+   - Use only OKX Trade CLI or OKX MCP as the execution backend.
+   - OKX Trade CLI can use local API-key profiles or OAuth. OKX MCP uses host
+     app or connector authorization.
+   - Do not use OAuth Broker or Fast API.
+   - Do not implement OpenAPI signing in this repo path; the OKX backend handles execution.
 
-1. 确认前置：用户是否已从 BD 拿到 `client_id`/`client_secret`，是否开通 Fast API + IP 白名单，`redirect_uri` 是否在白名单内。
-2. 前端：引入 OKX Web SDK，`init` → `generateState`（存起来）→ `authorize({scope:'fast_api', access_type:'offline', ...})`。
-3. 回调页：**校验 state**，把 `code`(+`domain`) 交后端。
-4. 后端：换 token → 删 Key → 建 Key → 加密存储。
-5. 业务调用：用 API Key 按 OKX 标准 HMAC 签名（`OK-ACCESS-*` 头）调接口；示例为 `GET /api/v5/account/balance`。
+3. **Third-party server + OKX Fast API/OpenAPI**
+   - Read `demos/third-party-fastapi/README.md`, `demos/third-party-fastapi/INTEGRATION_GUIDE.md`, and `demos/third-party-fastapi/PITFALLS.md`.
+   - Use when a third-party service creates and stores long-lived Fast API Keys for its end users.
+   - Keep the verified Fast API flow intact. Do not change endpoint constants, HMAC signing behavior, delete-before-create behavior, or domain allowlist logic unless the user explicitly asks and understands the risk.
 
-## 容易踩的坑
+## Naming Rules
 
-- 授权页没显示"快捷 API" → `scope` 没设成 `fast_api`。
-- 换 token 报 404 → 路径在 `/api/v5/users/oauth/token` 与 `/v5/users/oauth/token` 之间切换试。
-- 回跳 `domain=https://eea.okx.com` → 后续 REST 必须用该域名，WS 用 `wss://wseea.okx.com`。
-- 创建 Key 报 50118 → 需 Broker 提供 IP 白名单后才能 `bindApp`。
-- 签名失败（401/50113 等）→ 检查 timestamp 格式（ISO8601 毫秒 UTC）、prehash 拼接顺序、模拟盘是否漏带 `x-simulated-trading: 1`。
-- 前端授权用错站点 → 前端发起授权的 `requestUrl` 也要按站点（全球 / 土耳其 / EEA）切换，不是只在后端处理回跳 `domain`。前后端站点不一致会导致授权或后续调用失败。
-- 业务接口 query 与签名不一致（如 50113）→ 调业务接口时 query（如 `?ccy=BTC`）必须与 HMAC 签名用的 `requestPath` **逐字一致**：不要用 HTTP 库的自动 params 拼接（顺序 / 编码可能与签名串不同），应手动拼好 path 再同时用于签名和请求，否则签名校验失败。
+- The product-facing name is **AI Builder Code**.
+- Use `AI_BUILDER_CODE` only where server code reads environment configuration.
+- Type 1 OpenAPI scripts use `--ai-builder-code` on order-producing commands.
+- OKX order requests still use the field name `tag`; set its value to AI Builder Code.
+- The demo may expose `ai_builder_code` in JSON responses such as `/config`.
+  Do not use it as a repo config name or OKX request field.
+- Type 2 OKX backends may expose the argument as `--aiBuilderCode` or `aiBuilderCode`; preserve the backend schema instead of renaming it.
+- Use one public attribution concept in this repo: AI Builder Code. Preserve
+  OKX protocol fields and backend argument names only where this document lists
+  them.
+- Do not infer support from a generic OKX `tag` field. Check the selected demo
+  README, selected skill, or live backend schema before adding AI Builder Code
+  to a command, tool, or endpoint.
+- OKX responses may still contain `data[0].tag` or OKX fields such as `brokerCode`; do not rename OKX protocol fields.
+- AI Builder Code is assigned by OKX when the user registers as an AI Builder; use the value the user provides and do not make one up. Format: 1-16 alphanumeric characters.
+- AI Builder Code is not a secret, but order writes must stop if a required code is missing or cannot be passed through.
 
-更多错误码见 `errors.md`。
+## Security Rules
+
+- Never put `client_secret`, `secretKey`, or `passphrase` in frontend code, logs, or committed files.
+- Real `.env` files are local only and must not be committed.
+- Keep `.env.example` files only for demos that actually read environment configuration.
+- The `.env` files created from these examples are for demo use and contain sensitive fields; production integrations should use a secret manager or equivalent protected storage.
+- Type 1 OpenAPI and Type 2 CLI/MCP do not use a demo `.env` for AI Builder Code; pass AI Builder Code through the selected command flag or tool argument.
+- Default to simulated trading. Use mock mode only for local non-OAuth checks or when explicitly requested.
+
+## Documentation Rules
+
+- When the same rule appears in a demo path (its README, SKILL, or `AGENTS.md`)
+  and in `docs/`, the demo path version governs for that path. If they conflict,
+  follow the demo path version and flag the discrepancy to the user.
+- Keep operational rules inline in each path so the path is complete without
+  following links: how to attach AI Builder Code, trade-mode and position
+  selection, delete-before-create, and safety gates. Centralize only reference
+  material: the full support matrix in
+  `docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md` and external links in
+  `docs/REFERENCE_LINKS.md`. Each path lists only the endpoints, commands, or
+  tools it actually uses.
+- Put external reference links only in `docs/REFERENCE_LINKS.md`.
+- In other docs, link to `docs/REFERENCE_LINKS.md` instead of duplicating
+  OpenAPI, AI Builder, Agent Trade Kit, or source repository links.
+- Keep runtime URLs in the workflow document that uses them, such as OAuth SDK
+  CDN URLs, OKX API domains, callback examples, or localhost examples.
