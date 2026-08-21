@@ -1,0 +1,21 @@
+# Local secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environments
+.venv/
+.tmpvenv/
+venv/
+
+# Local editor/project files
+/.idea/
+
+# Local scratch space
+/.tmp/
+
+# Local test artifacts
+cookies.txt

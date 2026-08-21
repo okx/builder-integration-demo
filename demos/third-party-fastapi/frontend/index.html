@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OKX Fast API Demo</title>
+  <!--
+    OKX Web OpenSDK for authorization redirects.
+    Global site uses static.okx.com; China deployments may use static.coinall.ltd.
+  -->
+  <script src="https://static.okx.com/cdn/assets/okfe/libs/okxOAuth/index.js"></script>
+  <style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #1f2329; }
+    h1 { font-size: 20px; }
+    .step { border: 1px solid #e5e6eb; border-radius: 8px; padding: 16px; margin: 12px 0; }
+    button { background: #1f6feb; color: #fff; border: 0; border-radius: 6px; padding: 10px 16px; font-size: 14px; cursor: pointer; }
+    button:disabled { background: #b8c0cc; cursor: not-allowed; }
+    label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #5f6570; }
+    input, select { border: 1px solid #d0d5dd; border-radius: 6px; padding: 8px 10px; color: #1f2329; font-size: 14px; }
+    .workflow-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 12px 0; }
+    .workflow-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+    pre { background: #f7f8fa; border-radius: 6px; padding: 12px; overflow: auto; font-size: 12px; }
+    .tag { display: inline-block; background: #eaf2ff; color: #1f6feb; border-radius: 4px; padding: 2px 8px; font-size: 12px; }
+    #log { background: #0d1117; color: #c9d1d9; border-radius: 6px; padding: 12px; font-size: 12px; min-height: 80px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>OKX Fast API Demo <span class="tag" id="mode">...</span></h1>
+  <p>This page demonstrates the full flow: <b>authorize with scope=fast_api</b> -> backend token exchange -> delete/create API Key -> signed account balance query.</p>
+
+  <div class="step">
+    <h3>1. Authorize And Connect</h3>
+    <p>The button opens OKX authorization. After authorization, OKX redirects back here and the frontend sends <code>code</code> to the backend to create an API Key.</p>
+    <button id="btn-auth">Authorize And Connect OKX</button>
+    <pre id="connect-result" hidden></pre>
+  </div>
+
+  <div class="step">
+    <h3>2. Query Account Balance</h3>
+    <p>The backend signs <code>GET /api/v5/account/balance</code> with the stored API Key.</p>
+    <button id="btn-balance" disabled>Query Balance</button>
+    <pre id="balance-result" hidden></pre>
+  </div>
+
+  <div class="step">
+    <h3>3. Run Demo Order Workflows</h3>
+    <p>The backend reads market rules, computes valid demo sizes, and injects AI Builder Code into OKX request field <code>tag</code> for each order-producing call.</p>
+    <p>Server-configured AI Builder Code: <code id="ord-tag">...</code></p>
+    <div class="workflow-fields">
+      <label>
+        Spot instId
+        <input id="spot-inst" value="BTC-USDT" autocomplete="off" />
+      </label>
+      <label>
+        Spot quote amount
+        <input id="spot-quote" value="10" inputmode="decimal" autocomplete="off" />
+      </label>
+      <label>
+        Spot trade mode
+        <select id="spot-td-mode">
+          <option value="" selected>Auto</option>
+          <option value="cash">cash</option>
+          <option value="cross">cross</option>
+          <option value="isolated">isolated</option>
+        </select>
+      </label>
+      <label>
+        Swap instId
+        <input id="swap-inst" value="BTC-USDT-SWAP" autocomplete="off" />
+      </label>
+      <label>
+        Swap quote amount
+        <input id="swap-quote" value="10" inputmode="decimal" autocomplete="off" />
+      </label>
+      <label>
+        Swap open trade mode
+        <select id="swap-td-mode">
+          <option value="cross" selected>cross</option>
+          <option value="isolated">isolated</option>
+        </select>
+      </label>
+      <label>
+        Swap close margin mode
+        <select id="swap-mgn-mode">
+          <option value="cross" selected>cross</option>
+          <option value="isolated">isolated</option>
+        </select>
+      </label>
+      <label>
+        Swap position side
+        <select id="swap-pos-side">
+          <option value="long" selected>long</option>
+          <option value="net">net</option>
+        </select>
+      </label>
+    </div>
+    <div class="workflow-actions">
+      <button id="btn-fill-demo-fields" disabled>Fill Demo Fields</button>
+      <button id="btn-spot-open" disabled>Spot Open</button>
+      <button id="btn-spot-close" disabled>Spot Close</button>
+      <button id="btn-swap-open" disabled>Swap Open</button>
+      <button id="btn-swap-close" disabled>Swap Close</button>
+    </div>
+    <pre id="workflow-result" hidden></pre>
+  </div>
+
+  <div class="step">
+    <h3>Run Log</h3>
+    <div id="log"></div>
+  </div>
+
+<script>
+const log = (m) => { document.getElementById('log').textContent += `\n${m}`; };
+const show = (id, obj) => { const el = document.getElementById(id); el.hidden = false; el.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2); };
+
+let CONFIG = {};
+let CAN_RUN_ORDER_WORKFLOWS = false;
+let DEMO_FIELDS_READY = false;
+const ORDER_BUTTON_WORKFLOWS = {
+  'btn-spot-open': 'spotOpen',
+  'btn-spot-close': 'spotClose',
+  'btn-swap-open': 'swapOpen',
+  'btn-swap-close': 'swapClose',
+};
+let WORKFLOW_AVAILABILITY = {
+  spotOpen: false,
+  spotClose: false,
+  swapOpen: false,
+  swapClose: false,
+};
+const STRUCTURAL_WORKFLOW_FIELD_IDS = [
+  'spot-inst', 'spot-td-mode',
+  'swap-inst', 'swap-td-mode', 'swap-mgn-mode', 'swap-pos-side',
+];
+
+function setOrderButtonsEnabled(enabled) {
+  for (const [id, workflow] of Object.entries(ORDER_BUTTON_WORKFLOWS)) {
+    document.getElementById(id).disabled = !(enabled && WORKFLOW_AVAILABILITY[workflow]);
+  }
+}
+
+function setFillButtonEnabled(enabled) {
+  document.getElementById('btn-fill-demo-fields').disabled = !enabled;
+}
+
+function resetWorkflowAvailability() {
+  WORKFLOW_AVAILABILITY = {
+    spotOpen: false,
+    spotClose: false,
+    swapOpen: false,
+    swapClose: false,
+  };
+}
+
+function resetConnectedState() {
+  CAN_RUN_ORDER_WORKFLOWS = false;
+  DEMO_FIELDS_READY = false;
+  resetWorkflowAvailability();
+  document.getElementById('btn-balance').disabled = true;
+  setFillButtonEnabled(false);
+  setOrderButtonsEnabled(false);
+}
+
+function invalidateDemoFields() {
+  if (DEMO_FIELDS_READY) {
+    log('Demo fields changed; order buttons disabled until Fill Demo Fields is clicked again');
+  }
+  DEMO_FIELDS_READY = false;
+  resetWorkflowAvailability();
+  setOrderButtonsEnabled(false);
+}
+
+async function init() {
+  // 1. Read public backend config for authorization.
+  CONFIG = await (await fetch('/config')).json();
+  document.getElementById('mode').textContent = (CONFIG.mock ? 'MOCK - ' : '') + (CONFIG.simulated ? 'simulated' : 'live');
+  log(`Config loaded: client_id=${CONFIG.client_id || '(missing)'} scope=${CONFIG.scope}`);
+  const tagEl = document.getElementById('ord-tag');
+  if (tagEl) tagEl.textContent = CONFIG.ai_builder_code || '(missing AI_BUILDER_CODE: auth and balance checks only)';
+
+  // 2. Initialize SDK.
+  // Keep OAuth site selection aligned with the backend REST base URL.
+  if (window.OKEXOAuthSDK) {
+    OKEXOAuthSDK.init({ requestUrl: CONFIG.okx_base_url || 'https://www.okx.com', onInit: () => log('OKEXOAuthSDK initialized') });
+  } else {
+    log('[warn] OKEXOAuthSDK did not load; check CDN access');
+  }
+
+  // 3. If URL has code, this is an authorization callback.
+  const params = new URLSearchParams(location.search);
+  const code = params.get('code');
+  if (code) {
+    const state = params.get('state');
+    const domain = params.get('domain');
+    const savedState = localStorage.getItem('oauth_state');
+    log(`Detected OAuth callback: code=${code.slice(0, 8)}... state=${state} domain=${domain || '(default)'}`);
+
+    // CSRF protection: callback state must match the stored outbound state.
+    if (!savedState || savedState !== state) {
+      log('[error] state validation failed; callback ignored');
+      history.replaceState({}, '', location.pathname);
+      return;
+    }
+    localStorage.removeItem('oauth_state');
+    history.replaceState({}, '', location.pathname);
+    await runConnect(code, domain);
+  }
+}
+
+async function runConnect(code, domain) {
+  resetConnectedState();
+  log('-> Calling backend /api/connect to create API Key');
+  const res = await (await fetch('/api/connect', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, domain }),
+  })).json();
+  show('connect-result', res);
+  if (res.ok) {
+    log(`[ok] Connected, API Key=${res.api_key_masked}, perm=${res.perm}`);
+    document.getElementById('btn-balance').disabled = false;
+    DEMO_FIELDS_READY = false;
+    resetWorkflowAvailability();
+    const permParts = String(res.perm || '').toLowerCase().split(/[,\s]+/).filter(Boolean);
+    const canTrade = permParts.includes('trade');
+    if (CONFIG.ai_builder_code && canTrade) {
+      CAN_RUN_ORDER_WORKFLOWS = true;
+      setFillButtonEnabled(true);
+      setOrderButtonsEnabled(false);
+      log('Click Fill Demo Fields before running demo order workflows');
+    } else if (!canTrade) {
+      CAN_RUN_ORDER_WORKFLOWS = false;
+      setFillButtonEnabled(true);
+      setOrderButtonsEnabled(false);
+      log('Fill Demo Fields is available; order workflow buttons are disabled because the created API Key does not have trade permission');
+    } else {
+      CAN_RUN_ORDER_WORKFLOWS = false;
+      setFillButtonEnabled(true);
+      setOrderButtonsEnabled(false);
+      log('Fill Demo Fields is available; order workflow buttons are disabled because AI_BUILDER_CODE is missing');
+    }
+  } else {
+    log(`[error] Connect failed at ${res.step || 'unknown step'}; see response above`);
+  }
+}
+
+document.getElementById('btn-auth').addEventListener('click', () => {
+  // Test-only path has no real OAuth callback.
+  if (CONFIG.mock) {
+    log('Test-only path: skipping real authorization and connecting with fake code');
+    runConnect('mock-code', null);
+    return;
+  }
+  if (!window.OKEXOAuthSDK) return log('SDK is not loaded');
+  const state = OKEXOAuthSDK.generateState();
+  // localStorage survives refreshes and cross-tab callback behavior better than sessionStorage.
+  localStorage.setItem('oauth_state', state);
+  log(`Starting authorization: state=${state}`);
+  OKEXOAuthSDK.authorize({
+    response_type: 'code',
+    access_type: 'offline',
+    client_id: CONFIG.client_id,
+    // This demo passed real integration with encodeURIComponent.
+    // When migrating, inspect Network if redirect_uri mismatch occurs.
+    // The final authorization URL should contain exactly one encoded redirect_uri.
+    redirect_uri: encodeURIComponent(CONFIG.redirect_uri),
+    scope: CONFIG.scope,
+    state,
+  });
+});
+
+document.getElementById('btn-balance').addEventListener('click', async () => {
+  log('-> Calling backend /api/balance; backend signs request with API Key');
+  const res = await (await fetch('/api/balance')).json();
+  show('balance-result', res);
+  log(res.ok ? '[ok] Balance query succeeded' : '[error] Balance query failed; see response above');
+});
+
+const fieldValue = (id) => document.getElementById(id).value.trim();
+
+async function fillDemoFields() {
+  log('-> Calling backend /api/demo-workflow-fields to read account config');
+  const res = await (await fetch('/api/demo-workflow-fields')).json();
+  show('workflow-result', res);
+  if (!res.ok) {
+    DEMO_FIELDS_READY = false;
+    setOrderButtonsEnabled(false);
+    return log(`[error] Fill Demo Fields failed at ${res.step || 'unknown step'}; see response above`);
+  }
+
+  const spot = res.fields && res.fields.spot ? res.fields.spot : {};
+  const swap = res.fields && res.fields.swap ? res.fields.swap : {};
+  document.getElementById('spot-inst').value = spot.instId || 'BTC-USDT';
+  document.getElementById('spot-quote').value = spot.quoteAmount || '10';
+  document.getElementById('spot-td-mode').value = spot.tdMode || '';
+  document.getElementById('swap-inst').value = swap.instId || 'BTC-USDT-SWAP';
+  document.getElementById('swap-quote').value = swap.quoteAmount || '10';
+  document.getElementById('swap-td-mode').value = swap.tdMode || 'cross';
+  document.getElementById('swap-mgn-mode').value = swap.mgnMode || 'cross';
+  document.getElementById('swap-pos-side').value = swap.posSide || 'net';
+  const spotAvailable = spot.available !== false;
+  const swapAvailable = swap.available === true;
+  WORKFLOW_AVAILABILITY = {
+    spotOpen: spotAvailable,
+    spotClose: spotAvailable,
+    swapOpen: swapAvailable,
+    swapClose: swapAvailable,
+  };
+  DEMO_FIELDS_READY = true;
+  setOrderButtonsEnabled(CAN_RUN_ORDER_WORKFLOWS);
+  const account = res.account || {};
+  log(`[ok] Demo fields filled from account config: acctLv=${account.acctLv || '(empty)'} posMode=${account.posMode || '(empty)'}`);
+  if (!swapAvailable && swap.unavailableReason) {
+    log(`Swap workflows unavailable: ${swap.unavailableReason}`);
+  }
+  if (!CAN_RUN_ORDER_WORKFLOWS) {
+    log('Order workflow buttons remain disabled until trade permission and AI Builder Code are configured');
+  }
+}
+
+function workflowBody(kind) {
+  const spotInst = fieldValue('spot-inst');
+  const spotQuote = fieldValue('spot-quote');
+  const spotTdMode = fieldValue('spot-td-mode');
+  const swapInst = fieldValue('swap-inst');
+  const swapQuote = fieldValue('swap-quote');
+  const swapTdMode = fieldValue('swap-td-mode');
+  const swapMgnMode = fieldValue('swap-mgn-mode');
+  const swapPosSide = fieldValue('swap-pos-side');
+
+  if (kind.startsWith('spot') && (!spotInst || !spotQuote)) {
+    throw new Error('Spot instId and quote amount are required');
+  }
+  if (kind.startsWith('swap') && !swapInst) {
+    throw new Error('Swap instId is required');
+  }
+  if (kind === 'swap-open' && !swapQuote) {
+    throw new Error('Swap quote amount is required');
+  }
+  if (kind.startsWith('swap') && !swapPosSide) {
+    throw new Error('Swap position side is required');
+  }
+  if (kind === 'swap-close' && !swapMgnMode) {
+    throw new Error('Swap close margin mode is required');
+  }
+
+  if (kind === 'spot-open' || kind === 'spot-close') {
+    const body = { instId: spotInst, quoteAmount: spotQuote };
+    if (spotTdMode) body.tdMode = spotTdMode;
+    return body;
+  }
+  if (kind === 'swap-open') {
+    return { instId: swapInst, quoteAmount: swapQuote, tdMode: swapTdMode, posSide: swapPosSide };
+  }
+  return { instId: swapInst, mgnMode: swapMgnMode, posSide: swapPosSide };
+}
+
+async function runWorkflow(path, label, kind) {
+  let body;
+  try {
+    body = workflowBody(kind);
+  } catch (err) {
+    return log(`[error] ${err.message}`);
+  }
+  if (!CONFIG.simulated && !CONFIG.mock) {
+    if (!confirm(`Live trading uses real funds. Confirm ${label}?`)) {
+      return log(`${label} cancelled`);
+    }
+    body.confirmLiveOrder = true;
+  }
+  log(`-> Calling backend ${path} (${label}) with ${JSON.stringify(body)}`);
+  const res = await (await fetch(path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })).json();
+  show('workflow-result', res);
+  const d0 = res.raw && Array.isArray(res.raw.data) && res.raw.data[0] ? res.raw.data[0] : {};
+  const sent = res.sent_ai_builder_code || '';
+  const echoed = d0.tag || '';
+  const sentOrder = res.sent_order && res.sent_order.tag ? res.sent_order.tag : '';
+  log(`${label}: ok=${Boolean(res.ok)} workflow=${res.workflow || '(none)'}`);
+  log(`Tag sent: sent_ai_builder_code="${sent || '(empty)'}", sent_order.tag="${sentOrder || '(empty)'}", response data[0].tag="${echoed || '(not returned)'}"`);
+}
+
+document.getElementById('btn-spot-open').addEventListener('click', () => runWorkflow('/api/spot/open', 'Spot Open', 'spot-open'));
+document.getElementById('btn-spot-close').addEventListener('click', () => runWorkflow('/api/spot/close', 'Spot Close', 'spot-close'));
+document.getElementById('btn-swap-open').addEventListener('click', () => runWorkflow('/api/swap/open', 'Swap Open', 'swap-open'));
+document.getElementById('btn-swap-close').addEventListener('click', () => runWorkflow('/api/swap/close', 'Swap Close', 'swap-close'));
+document.getElementById('btn-fill-demo-fields').addEventListener('click', fillDemoFields);
+for (const id of STRUCTURAL_WORKFLOW_FIELD_IDS) {
+  document.getElementById(id).addEventListener('input', invalidateDemoFields);
+  document.getElementById(id).addEventListener('change', invalidateDemoFields);
+}
+
+init();
+</script>
+</body>
+</html>
