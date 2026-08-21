@@ -91,10 +91,8 @@ order:
 Use a CLI version that satisfies the selected CLI skill's minimum version. If
 the selected command help does not expose `--aiBuilderCode`, warn before placing
 an order and do not claim AI Builder Code attribution for that command.
-The minimum supported CLI version is tracked in the CLI skill as
-`<OKX_TRADE_CLI_MIN_VERSION_FOR_THIS_SKILL>` until the OKX Trade CLI release is
-published; command help/schema support is a warning check for AI Builder Code
-attribution.
+The minimum supported CLI version is `1.4.4`, tracked in the CLI skill; command
+help/schema support is a warning check for AI Builder Code attribution.
 
 Supported CLI command forms:
 

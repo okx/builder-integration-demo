@@ -183,6 +183,7 @@ def place_order(base_url: str, api_key: str, secret_key: str, passphrase: str,
         "attachAlgoOrds": attach_algo_ords,
     })
 
+    # Compact JSON: the same serialized string is used for both signing and sending.
     body = json.dumps(body_obj, separators=(",", ":"))
     headers = _headers(api_key, secret_key, passphrase, "POST", PATH_TRADE_ORDER, body, simulated)
     return _parse(requests.post(base_url + PATH_TRADE_ORDER, headers=headers, data=body, timeout=10))
@@ -202,6 +203,7 @@ def close_position(base_url: str, api_key: str, secret_key: str, passphrase: str
         "clOrdId": cl_ord_id,
         "tag": ai_builder_code,
     })
+    # Compact JSON: the same serialized string is used for both signing and sending.
     body = json.dumps(body_obj, separators=(",", ":"))
     headers = _headers(
         api_key, secret_key, passphrase,

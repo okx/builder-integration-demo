@@ -39,13 +39,12 @@ okx swap close --help
 Minimum CLI version for this skill:
 
 ```text
-<OKX_TRADE_CLI_MIN_VERSION_FOR_THIS_SKILL>
+1.4.4
 ```
 
-This version is a placeholder until the OKX Trade CLI release is published.
-After the release, replace it with the first CLI version that supports all
-features required by these workflows, including `--aiBuilderCode` on the
-required order-producing commands.
+`1.4.4` is the first OKX Trade CLI version that supports AI Builder Code
+(`--aiBuilderCode`) on the required order-producing commands. Older versions
+cannot attribute orders through AI Builder Code.
 
 Use both checks, with different severity:
 
