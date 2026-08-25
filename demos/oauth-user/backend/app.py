@@ -41,7 +41,6 @@ REDIRECT_URI      = os.environ.get("REDIRECT_URI", "http://localhost:8000/")
 SCOPE             = "fast_api"
 OKX_BASE_URL      = (os.environ.get("OKX_BASE_URL", "https://www.okx.com") or "https://www.okx.com").rstrip("/")
 SIMULATED         = os.environ.get("SIMULATED", "1") == "1"        # Safe default.
-MOCK              = os.environ.get("MOCK", "") == "1"              # Test-only; not a demo config.
 APIKEY_PASSPHRASE = os.environ.get("APIKEY_PASSPHRASE", "")
 APIKEY_LABEL      = os.environ.get("APIKEY_LABEL", "demo")
 APIKEY_PERM       = os.environ.get("APIKEY_PERM", "read_only")     # Safe default.
@@ -140,8 +139,6 @@ def _validated_apikey_config() -> dict:
 
 
 def _validate_oauth_config() -> None:
-    if MOCK:
-        return
     client_id = CLIENT_ID.strip()
     client_secret = CLIENT_SECRET.strip()
     if not client_id or client_id.lower() in {"your_client_id", "..."} or client_id.startswith("<"):
@@ -821,7 +818,6 @@ def config():
         "scope": SCOPE,
         "okx_base_url": OKX_BASE_URL,
         "simulated": SIMULATED,
-        "mock": MOCK,
         "ai_builder_code": AI_BUILDER_CODE,   # Public attribution value, not a secret.
         "state": state,
     })

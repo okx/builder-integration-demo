@@ -234,6 +234,10 @@ node tests/verify_frontend_workflow_state.js
 node tests/verify_js_sign.js
 ```
 
+The two `node` checks are frontend/signing test scaffolding and need Node.js
+(18+ recommended). Running the demo itself (`python backend/app.py`) does not
+need Node. (Your own production stack is independent of this demo's tooling.)
+
 See [TESTING.md](TESTING.md) for local automated tests and real integration checks, and [PITFALLS.md](PITFALLS.md) for migration pitfalls and error-code checks.
 
 ## Copy vs Adapt
@@ -242,11 +246,11 @@ Every file in this folder falls into exactly one bucket.
 
 | File | Bucket | Notes |
 |---|---|---|
-| `backend/okx_client.py` | **Adapt — you MUST remove the `MOCK` / `_mock_*` test scaffolding before production** | The OAuth + Fast API + signing helpers are the valuable part, but this file also carries a test-only `MOCK=1` environment switch: `_mock_enabled()` short-circuits `exchange_token`, key create/delete, balance, config, positions, ticker, instruments, `place_order`, and `close_position` and returns canned OKX-like responses. Left in place, a stray `MOCK=1` in the environment means orders are **never actually sent** while the API reports success. Delete `_mock_enabled()`, every `_mock_*` helper, and every `if _mock_enabled():` branch before production. Keep `_sign` and `_now_iso_ms` behaviour byte-for-byte. |
-| `backend/app.py` | **Adapt — also strip the `MOCK` switch** | Example Flask routes and the demo workflow orchestration. Keep the verified pieces (domain allowlist, delete-before-create, **server-side OAuth `state` validation** in `/api/connect`) and the AI Builder Code gate; replace process-memory session storage, route shapes, and workflow bodies with your own. Do not remove or weaken the `state` check (see "For real integration"). **Delete the `MOCK` scaffolding before production:** the `MOCK` env var (defined near the top), the `if MOCK: return` early-exit that **bypasses the OAuth config validation gate** in `_validate_oauth_config()`, and the `"mock": MOCK` key served in `GET /config`. |
-| `frontend/index.html` | **Adapt — also strip the `MOCK` branch** | Example single-page UI and OKX Web SDK wiring. Reuse the authorization call shape and `state` handling; rebuild the UI in your own stack. Never move `client_secret`, `secretKey`, or `passphrase` into it. **Delete the `MOCK` scaffolding:** the `CONFIG.mock` fake-code connect branch (which skips real OAuth) and the `&& !CONFIG.mock` term in the live-order confirm guard — never let a config flag suppress the live-trading confirmation. |
+| `backend/okx_client.py` | **Adapt** | The OAuth + Fast API + signing helpers are the valuable part. This is plain production code with no test switches: each function builds the headers/body and makes the real `requests` call. Reuse the signing helpers as-is and adapt the request wrappers to your stack. Keep `_sign` and `_now_iso_ms` behaviour byte-for-byte. (Automated tests stub these functions at the test layer with `monkeypatch`; there is nothing to strip here.) |
+| `backend/app.py` | **Adapt** | Example Flask routes and the demo workflow orchestration. Keep the verified pieces (domain allowlist, delete-before-create, **server-side OAuth `state` validation** in `/api/connect`) and the AI Builder Code gate; replace process-memory session storage, route shapes, and workflow bodies with your own. Do not remove or weaken the `state` check (see "For real integration"). |
+| `frontend/index.html` | **Adapt** | Example single-page UI and OKX Web SDK wiring. Reuse the authorization call shape and `state` handling; rebuild the UI in your own stack. Never move `client_secret`, `secretKey`, or `passphrase` into it. The live-order confirm guard is gated only on `!CONFIG.simulated`; keep an equivalent live-trading confirmation in your own UI. |
 | `tests/test_sign.py` | **Scaffolding (file) — but copy the signing vectors** | Do not copy the test harness wholesale, but **do copy its known-answer signing vectors and prehash-order assertions** into your own signing regression test — they are the regression net on the signing code you adapt. |
-| `tests/test_mock_flow.py` | **Demo scaffolding — do NOT copy** | Exercises the `MOCK=1` path that you are removing. |
+| `tests/test_flow.py` | **Demo scaffolding — do NOT copy** | Flask-test-client flow tests. They stub the `okx_client` functions with `monkeypatch` at the test layer; the production code carries no mock switch. |
 | `tests/conftest.py` | **Demo scaffolding — do NOT copy** | Wires `sys.path` to this demo's `backend/` directory. |
 | `tests/verify_js_sign.js` | **Demo scaffolding — do NOT copy** | Reference only: checks the Node.js snippet in `SIGNING.md` against the Python vectors. |
 | `tests/verify_frontend_workflow_state.js` | **Demo scaffolding — do NOT copy** | Reference only: asserts the demo page's button-enable state machine. |
@@ -273,12 +277,12 @@ becomes real code:
   Flask session or `state = HMAC(server_secret, nonce)`, so a cookie an attacker
   wrote on a sibling origin can't be adopted), and on HTTPS use a `Secure` +
   `__Host-` cookie prefix.
-- **Remove the mock switch — from all three files.** `MOCK` scaffolding lives in
-  `backend/okx_client.py` (fakes order acceptance), `backend/app.py` (bypasses the
-  OAuth config validation gate + leaks a `mock` flag in `/config`), and
-  `frontend/index.html` (skips real OAuth and suppresses the live-order confirm).
-  See the Copy vs Adapt notes above for each. A production build must not contain
-  any code path that fakes order acceptance or is gated on a `MOCK`/`mock` flag.
+- **No fake-order-acceptance paths.** The production code in this demo has no
+  mock switch: order-producing calls always hit the real OKX endpoints, and the
+  automated tests stub `okx_client` at the test layer (`monkeypatch`) instead of
+  through any in-code flag. Keep it that way — a production build must never carry
+  a code path that fakes order acceptance or suppresses the live-trading
+  confirmation.
 - **Fast API Key storage.** This demo intentionally stores the created Fast API
   Key only in backend process memory, keyed by the local demo browser session.
   Restarting the backend clears the demo session and requires connecting again.

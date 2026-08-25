@@ -46,10 +46,10 @@ that folder. Follow it instead of copying a whole demo folder wholesale.
    - Use when a third-party service creates and stores long-lived Fast API Keys for its end users.
    - Keep the verified Fast API flow intact. Do not change endpoint constants, HMAC signing behavior, delete-before-create behavior, domain allowlist logic, or the server-side OAuth `state` CSRF check (validated in `/api/connect` against the httpOnly `oauth_state` cookie) unless the user explicitly asks and understands the risk. Never weaken `state` to a frontend-only check.
    - Artifact: `backend/okx_client.py` and `backend/app.py`, both **adapted**.
-     `MOCK` test scaffolding lives in `backend/okx_client.py` (fakes order
-     acceptance), `backend/app.py` (bypasses the OAuth config validation gate;
-     leaks a `mock` flag in `/config`), and `frontend/index.html` (skips real
-     OAuth; suppresses the live-order confirm). Remove all of it before production.
+     The production code carries no mock switch: order-producing calls always hit
+     the real OKX endpoints. Automated tests stub `okx_client` at the test layer
+     (`monkeypatch` in `tests/test_flow.py`), so there is no in-code fake-order
+     path to strip. A production build must never reintroduce one.
 
 Full decision tree: `docs/USER_TYPES.md`. It is the authoritative routing table;
 `README.md` and this file point to it.
@@ -81,7 +81,7 @@ Full decision tree: `docs/USER_TYPES.md`. It is the authoritative routing table;
 - Keep `.env.example` files only for demos that actually read environment configuration.
 - The `.env` files created from these examples are for demo use and contain sensitive fields; production integrations should use a secret manager or equivalent protected storage.
 - `openapi-user` OpenAPI and `cli-user`/`mcp-user` do not use a demo `.env` for AI Builder Code; pass AI Builder Code through the selected command flag or tool argument.
-- Default to simulated trading. Use mock mode only for local non-OAuth checks or when explicitly requested.
+- Default to simulated trading. `SIMULATED=1` sets the OKX `x-simulated-trading` header — a real OKX call to the demo trading environment, not a mock. There is no mock mode in this demo's production code.
 
 ## Documentation Rules
 

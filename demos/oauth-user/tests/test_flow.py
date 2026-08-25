@@ -1,12 +1,17 @@
 """
-Smoke tests for the full MOCK flow without real HTTP.
+Smoke tests for the OAuth Fast API demo flow using the Flask test client.
 
-Uses Flask test client for /config -> /api/connect -> /api/balance and verifies:
-  - MOCK=1 works without real Broker credentials.
-  - Successful connect returns ok=True and a masked apiKey.
+External OKX HTTP calls are stubbed at the test layer (monkeypatch on the
+okx_client functions the app imports as `okx`); the production code has no mock
+switch, so the demo an AI reads stays free of test scaffolding. The canned
+OKX-like responses below were moved out of the app for the same reason.
+
+Covers /config -> /api/connect -> /api/balance and the demo order workflows:
+  - connect succeeds without real Broker credentials (stubbed token/key APIs).
+  - successful connect returns ok=True and a masked apiKey.
   - secretKey and passphrase do not appear in any response.
-  - Balance response includes totalEq and details.
-  - Demo spot/swap workflow routes inject AI Builder Code as OKX tag.
+  - balance response includes totalEq and details.
+  - demo spot/swap workflow routes inject AI Builder Code as the OKX tag.
 """
 import json
 import importlib
@@ -15,12 +20,166 @@ from unittest.mock import Mock
 import pytest
 
 
-def _set_common_env(monkeypatch, ai_builder_code="ABCD1234", simulated="1",
-                    api_key_perm="read_only", mock="1"):
-    if mock is None:
-        monkeypatch.delenv("MOCK", raising=False)
+# --- Canned OKX-like responses -----------------------------------------------
+# Moved out of production okx_client so the demo code stays mock-free. Tests
+# install these as stubs (see _install_okx_stubs); individual tests override
+# specific functions with monkeypatch.setattr as needed.
+def _canned_token():
+    return {"access_token": "test-token", "token_type": "bearer", "expires_in": 3600}
+
+
+def _canned_delete():
+    return {"code": "0", "msg": "", "data": []}
+
+
+def _canned_create(passphrase, label, perm, bind_app):
+    return {
+        "code": "0", "msg": "",
+        "data": [{
+            "label": label,
+            "apiKey": "test-apikey-0000111122223333",
+            "secretKey": "test-secret",
+            "passphrase": passphrase or "test-passphrase",
+            "perm": perm,
+            "bindApp": bind_app,
+        }],
+    }
+
+
+def _canned_balance(ccy=None):
+    details = [
+        {"ccy": "USDT", "eq": "1000.5", "availBal": "950.0", "frozenBal": "50.5",
+         "availEq": "950.0", "cashBal": "1000.5"},
+        {"ccy": "BTC", "eq": "0.02", "availBal": "0.02", "frozenBal": "0",
+         "availEq": "0.02", "cashBal": "0.02"},
+    ]
+    if ccy:
+        wanted = {c.strip().upper() for c in ccy.split(",")}
+        details = [d for d in details if d["ccy"] in wanted]
+    return {
+        "code": "0", "msg": "",
+        "data": [{
+            "uTime": "1700000000000",
+            "totalEq": "1200.0",
+            "isoEq": "0",
+            "adjEq": "1180.0",
+            "details": details,
+        }],
+    }
+
+
+def _canned_ticker(inst_id):
+    return {"code": "0", "msg": "", "data": [{
+        "instId": inst_id, "last": "100000", "bidPx": "99999.9", "askPx": "100000.1",
+    }]}
+
+
+def _canned_instruments(inst_type, inst_id):
+    item = {"instType": inst_type, "instId": inst_id, "state": "live", "tickSz": "0.1"}
+    if inst_type == "SWAP":
+        item.update({"ctType": "linear", "ctVal": "0.01", "ctValCcy": "BTC",
+                     "settleCcy": "USDT", "minSz": "0.01", "lotSz": "0.01"})
     else:
-        monkeypatch.setenv("MOCK", mock)
+        item.update({"minSz": "0.00001", "lotSz": "0.00000001"})
+    return {"code": "0", "msg": "", "data": [item]}
+
+
+def _canned_config():
+    return {"code": "0", "msg": "", "data": [{"acctLv": "3", "posMode": "long_short_mode"}]}
+
+
+def _canned_positions(inst_id=None):
+    return {"code": "0", "msg": "", "data": [{
+        "instId": inst_id or "BTC-USDT-SWAP", "posSide": "long", "mgnMode": "cross",
+        "pos": "0.01", "avgPx": "100000", "upl": "0",
+    }]}
+
+
+def _canned_order(tag=""):
+    return {"code": "0", "msg": "", "data": [{
+        "clOrdId": "", "ordId": "test-ord-0000111122223333",
+        "tag": tag or "", "sCode": "0", "sMsg": "",
+    }]}
+
+
+def _canned_close_position(tag=""):
+    return {"code": "0", "msg": "", "data": [{
+        "instId": "BTC-USDT-SWAP", "tag": tag or "", "sCode": "0", "sMsg": "",
+    }]}
+
+
+def _install_okx_stubs(monkeypatch, app_module):
+    """
+    Replace every okx_client network function the app calls with a canned
+    response so the full flow runs without real HTTP. Signatures mirror the real
+    okx_client functions so app calls match by position or keyword.
+    """
+    okx = app_module.okx
+
+    def exchange_token(base_url, client_id, client_secret, code):
+        return _canned_token()
+
+    def delete_oauth_apikey(base_url, access_token, simulated=True):
+        return _canned_delete()
+
+    def create_oauth_apikey(base_url, access_token, passphrase, label,
+                            perm="read_only", bind_app=True, simulated=True):
+        return _canned_create(passphrase, label, perm, bind_app)
+
+    def get_account_balance(base_url, api_key, secret_key, passphrase,
+                            ccy=None, simulated=True):
+        # Preserve the real ccy validation so invalid-filter tests still fail.
+        import okx_client
+        return _canned_balance(okx_client._ccy_filter(ccy))
+
+    def get_account_config(base_url, api_key, secret_key, passphrase, simulated=True):
+        return _canned_config()
+
+    def get_positions(base_url, api_key, secret_key, passphrase,
+                      inst_type=None, inst_id=None, simulated=True):
+        return _canned_positions(inst_id)
+
+    def get_ticker(base_url, inst_id, simulated=True):
+        return _canned_ticker(inst_id)
+
+    def get_instruments(base_url, inst_type, inst_id, simulated=True):
+        return _canned_instruments(inst_type, inst_id)
+
+    def place_order(base_url, api_key, secret_key, passphrase, inst_id, td_mode,
+                    side, ord_type, sz, px=None, tgt_ccy=None, pos_side=None,
+                    reduce_only=False, tag=None, simulated=True):
+        return _canned_order(tag)
+
+    def close_position(base_url, api_key, secret_key, passphrase, inst_id, mgn_mode,
+                       pos_side=None, auto_cxl=True, tag=None, simulated=True):
+        return _canned_close_position(tag)
+
+    def _params(f):
+        # Compare parameter names/defaults/kind (annotations omitted by the stubs)
+        # so a stub silently drifting from the real okx_client signature fails loudly.
+        import inspect
+        return [(p.name, p.default, p.kind)
+                for p in inspect.signature(f).parameters.values()]
+
+    for name, fn in (
+        ("exchange_token", exchange_token),
+        ("delete_oauth_apikey", delete_oauth_apikey),
+        ("create_oauth_apikey", create_oauth_apikey),
+        ("get_account_balance", get_account_balance),
+        ("get_account_config", get_account_config),
+        ("get_positions", get_positions),
+        ("get_ticker", get_ticker),
+        ("get_instruments", get_instruments),
+        ("place_order", place_order),
+        ("close_position", close_position),
+    ):
+        assert _params(getattr(okx, name)) == _params(fn), (
+            f"stub signature drift for okx.{name}; realign the test stub with okx_client")
+        monkeypatch.setattr(okx, name, fn)
+
+
+def _set_common_env(monkeypatch, ai_builder_code="ABCD1234", simulated="1",
+                    api_key_perm="read_only"):
     if ai_builder_code is None:
         # Keep local environment values from leaking into tests.
         monkeypatch.setenv("AI_BUILDER_CODE", "")
@@ -30,10 +189,12 @@ def _set_common_env(monkeypatch, ai_builder_code="ABCD1234", simulated="1",
     monkeypatch.setenv("SCOPE", "wrong_scope_should_be_ignored")
     monkeypatch.setenv("APIKEY_PERM", api_key_perm)
     monkeypatch.setenv("OKX_BASE_URL", "https://www.okx.com")
-    monkeypatch.setenv("CLIENT_ID", "")
-    monkeypatch.setenv("CLIENT_SECRET", "")
+    # Valid (non-placeholder) OAuth config so _validate_oauth_config passes;
+    # the token/key exchange itself is stubbed by _install_okx_stubs.
+    monkeypatch.setenv("CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("CLIENT_SECRET", "test-client-secret")
     monkeypatch.setenv("APIKEY_LABEL", "demo")
-    monkeypatch.setenv("APIKEY_PASSPHRASE", "MockPassphrase1!")
+    monkeypatch.setenv("APIKEY_PASSPHRASE", "TestPassphrase1!")
 
 
 def _connect(client, **body):
@@ -49,68 +210,80 @@ def _connect(client, **body):
     return client.post("/api/connect", json=body)
 
 
-@pytest.fixture()
-def client(monkeypatch):
-    _set_common_env(monkeypatch, api_key_perm="trade")
+@pytest.fixture(autouse=True)
+def _forbid_real_http(monkeypatch):
+    """
+    Safety net: any okx_client HTTP call a test forgot to stub raises instead of
+    reaching the network. Signing unit tests override okx.requests themselves.
+    """
+    import app as app_module
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("test attempted a real HTTP call; stub the okx_client function")
+
+    # Session.request is the convergence point for every requests verb, so guarding
+    # it catches any call regardless of the verb okx_client uses now or later;
+    # get/post are also patched for a clearer message on today's code paths.
+    monkeypatch.setattr(app_module.okx.requests.sessions.Session, "request", _boom)
+    monkeypatch.setattr(app_module.okx.requests, "post", _boom)
+    monkeypatch.setattr(app_module.okx.requests, "get", _boom)
+
+
+def _make_client(monkeypatch, **env):
+    _set_common_env(monkeypatch, **env)
     # app.py reads environment variables at import time, so reload after setting env.
     import app as app_module
     importlib.reload(app_module)
+    _install_okx_stubs(monkeypatch, app_module)
     app_module.app.config.update(TESTING=True)
+    return app_module
+
+
+@pytest.fixture()
+def client(monkeypatch):
+    app_module = _make_client(monkeypatch, api_key_perm="trade")
     with app_module.app.test_client() as c:
         yield c
 
 
 @pytest.fixture()
 def read_only_client(monkeypatch):
-    _set_common_env(monkeypatch, api_key_perm="read_only")
-    # app.py reads environment variables at import time, so reload after setting env.
-    import app as app_module
-    importlib.reload(app_module)
-    app_module.app.config.update(TESTING=True)
+    app_module = _make_client(monkeypatch, api_key_perm="read_only")
     with app_module.app.test_client() as c:
         yield c
 
 
 @pytest.fixture()
 def client_without_ai_builder_code(monkeypatch):
-    _set_common_env(monkeypatch, ai_builder_code=None, api_key_perm="trade")
-    import app as app_module
-    importlib.reload(app_module)
-    app_module.app.config.update(TESTING=True)
+    app_module = _make_client(monkeypatch, ai_builder_code=None, api_key_perm="trade")
     with app_module.app.test_client() as c:
         yield c
 
 
 @pytest.fixture()
 def client_with_invalid_ai_builder_code(monkeypatch):
-    _set_common_env(monkeypatch, ai_builder_code="bad-code!", api_key_perm="trade")
-    import app as app_module
-    importlib.reload(app_module)
-    app_module.app.config.update(TESTING=True)
+    app_module = _make_client(monkeypatch, ai_builder_code="bad-code!", api_key_perm="trade")
     with app_module.app.test_client() as c:
         yield c
 
 
 @pytest.fixture()
 def live_client(monkeypatch):
-    _set_common_env(monkeypatch, simulated="0", api_key_perm="trade")
-    import app as app_module
-    importlib.reload(app_module)
-    app_module.app.config.update(TESTING=True)
+    app_module = _make_client(monkeypatch, simulated="0", api_key_perm="trade")
     with app_module.app.test_client() as c:
         yield c
 
 
-def test_config_reports_mock(client):
+def test_config_reports_public_fields(client):
     cfg = client.get("/config").get_json()
-    assert cfg["mock"] is True
+    assert "mock" not in cfg  # the mock switch was removed from production code
     assert cfg["simulated"] is True
     assert cfg["okx_base_url"] == "https://www.okx.com"
     assert cfg["scope"] == "fast_api"
     assert cfg["ai_builder_code"] == "ABCD1234"
 
 
-def test_full_mock_flow_and_no_secret_leak(read_only_client):
+def test_full_flow_and_no_secret_leak(read_only_client):
     connect = _connect(read_only_client, code="mock-code")
     body = connect.get_json()
     assert connect.status_code == 200
@@ -120,7 +293,8 @@ def test_full_mock_flow_and_no_secret_leak(read_only_client):
     assert "****" in body["api_key_masked"]
 
     raw = connect.get_data(as_text=True)
-    assert "mock-secret" not in raw
+    assert "test-secret" not in raw
+    assert "test-client-secret" not in raw  # client_secret must never be returned
     assert "secretKey" not in raw
     assert "passphrase" not in raw
 
@@ -132,7 +306,7 @@ def test_full_mock_flow_and_no_secret_leak(read_only_client):
     assert "totalEq" in data
     assert any(d["ccy"] == "USDT" for d in data["details"])
 
-    assert "mock-secret" not in bal.get_data(as_text=True)
+    assert "test-secret" not in bal.get_data(as_text=True)
 
 
 def test_config_mints_and_reuses_oauth_state(client):
@@ -282,7 +456,10 @@ def test_connect_rejects_invalid_default_base_url_before_external_calls(monkeypa
 
 
 def test_real_connect_requires_oauth_credentials_before_external_calls(monkeypatch):
-    _set_common_env(monkeypatch, api_key_perm="trade", mock=None)
+    _set_common_env(monkeypatch, api_key_perm="trade")
+    # Override the valid defaults so the missing-credentials guard fires.
+    monkeypatch.setenv("CLIENT_ID", "")
+    monkeypatch.setenv("CLIENT_SECRET", "")
 
     import app as app_module
     importlib.reload(app_module)
@@ -303,7 +480,7 @@ def test_real_connect_requires_oauth_credentials_before_external_calls(monkeypat
 
 
 def test_real_connect_rejects_uppercase_oauth_placeholders_before_external_calls(monkeypatch):
-    _set_common_env(monkeypatch, api_key_perm="trade", mock=None)
+    _set_common_env(monkeypatch, api_key_perm="trade")
     monkeypatch.setenv("CLIENT_ID", "YOUR_CLIENT_ID")
     monkeypatch.setenv("CLIENT_SECRET", "YOUR_CLIENT_SECRET")
 
@@ -599,7 +776,6 @@ def test_live_order_requires_confirmation(live_client, monkeypatch):
 def test_okx_client_place_order_serializes_tag_and_optional_fields(monkeypatch):
     import okx_client as okx
 
-    monkeypatch.delenv("MOCK", raising=False)
     monkeypatch.setattr(okx, "_now_iso_ms", lambda: "2020-01-01T00:00:00.000Z")
     captured = {}
 
@@ -633,7 +809,6 @@ def test_okx_client_place_order_serializes_tag_and_optional_fields(monkeypatch):
 def test_okx_client_close_position_serializes_tag_and_optional_fields(monkeypatch):
     import okx_client as okx
 
-    monkeypatch.delenv("MOCK", raising=False)
     monkeypatch.setattr(okx, "_now_iso_ms", lambda: "2020-01-01T00:00:00.000Z")
     captured = {}
 
@@ -666,7 +841,6 @@ def test_okx_client_close_position_serializes_tag_and_optional_fields(monkeypatc
 def test_okx_client_balance_uses_query_builder_and_validates_ccy(monkeypatch):
     import okx_client as okx
 
-    monkeypatch.delenv("MOCK", raising=False)
     monkeypatch.setattr(okx, "_now_iso_ms", lambda: "2020-01-01T00:00:00.000Z")
     captured = {}
 

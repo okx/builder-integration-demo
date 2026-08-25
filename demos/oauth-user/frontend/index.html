@@ -173,7 +173,7 @@ function invalidateDemoFields() {
 async function init() {
   // 1. Read public backend config for authorization.
   CONFIG = await (await fetch('/config')).json();
-  document.getElementById('mode').textContent = (CONFIG.mock ? 'MOCK - ' : '') + (CONFIG.simulated ? 'simulated' : 'live');
+  document.getElementById('mode').textContent = (CONFIG.simulated ? 'simulated' : 'live');
   log(`Config loaded: client_id=${CONFIG.client_id || '(missing)'} scope=${CONFIG.scope}`);
   const tagEl = document.getElementById('ord-tag');
   if (tagEl) tagEl.textContent = CONFIG.ai_builder_code || '(missing AI_BUILDER_CODE: auth and balance checks only)';
@@ -254,12 +254,6 @@ document.getElementById('btn-auth').addEventListener('click', async () => {
     CONFIG = await (await fetch('/config')).json();
   } catch (e) {
     return log('[error] failed to refresh config before authorize: ' + e);
-  }
-  // Test-only path has no real OAuth callback.
-  if (CONFIG.mock) {
-    log('Test-only path: skipping real authorization and connecting with fake code');
-    runConnect('mock-code', null, CONFIG.state);
-    return;
   }
   if (!window.OKEXOAuthSDK) return log('SDK is not loaded');
   // Use the server-minted state (bound to the httpOnly oauth_state cookie by
@@ -375,7 +369,7 @@ async function runWorkflow(path, label, kind) {
   } catch (err) {
     return log(`[error] ${err.message}`);
   }
-  if (!CONFIG.simulated && !CONFIG.mock) {
+  if (!CONFIG.simulated) {
     if (!confirm(`Live trading uses real funds. Confirm ${label}?`)) {
       return log(`${label} cancelled`);
     }
