@@ -8,7 +8,7 @@ Flow:
     -> backend creates a Fast API Key and stores it server-side
     -> backend signs OKX OpenAPI requests with the created API Key.
 
-Run from demos/third-party-fastapi:
+Run from demos/oauth-user:
   test -f .env || cp .env.example .env
   test -d .tmpvenv || python3 -m venv .tmpvenv
   source .tmpvenv/bin/activate
@@ -19,6 +19,7 @@ Run from demos/third-party-fastapi:
 
 import os
 import re
+import secrets
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_UP
 
@@ -808,7 +809,13 @@ def index():
 @app.get("/config")
 def config():
     """Return public frontend config. client_id is public; client_secret is never returned."""
-    return jsonify({
+    # OAuth CSRF `state`: minted server-side and bound to an httpOnly cookie, then
+    # verified at /api/connect (the frontend echoes it back but cannot read/forge
+    # the cookie). Reuse an existing cookie so the value survives the
+    # authorize -> callback full-page reload; a fresh one is minted after it is
+    # consumed at /api/connect.
+    state = request.cookies.get("oauth_state") or secrets.token_urlsafe(24)
+    resp = jsonify({
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
         "scope": SCOPE,
@@ -816,7 +823,12 @@ def config():
         "simulated": SIMULATED,
         "mock": MOCK,
         "ai_builder_code": AI_BUILDER_CODE,   # Public attribution value, not a secret.
+        "state": state,
     })
+    # httpOnly: page JS never reads it; SameSite=Lax so it rides the top-level OAuth
+    # callback redirect. Production on HTTPS should also set Secure.
+    resp.set_cookie("oauth_state", state, httponly=True, samesite="Lax", max_age=1800)
+    return resp
 
 
 @app.post("/api/connect")
@@ -828,11 +840,27 @@ def connect():
     data = request.get_json(force=True) or {}
     code = data.get("code")
     domain = data.get("domain")
-    # A new connect attempt replaces the prior session connection. If this attempt
-    # fails, follow-up balance/order requests must not keep using stale credentials.
-    _clear_session_creds()
+    state = data.get("state")
     if not code:
         return jsonify({"ok": False, "error": "missing code"}), 400
+
+    # Server-side OAuth CSRF check: the echoed `state` must equal the httpOnly
+    # cookie minted by /config. This is the real defense — the frontend check is
+    # advisory and bypassable by posting here directly. Rejecting BEFORE the token
+    # exchange (and before touching the existing session) prevents
+    # authorization-code injection binding a foreign account to this session.
+    # Compare as bytes: secrets.compare_digest rejects non-ASCII str (would 500).
+    cookie_state = request.cookies.get("oauth_state")
+    if (not state or not cookie_state
+            or not secrets.compare_digest(str(state).encode("utf-8"),
+                                          str(cookie_state).encode("utf-8"))):
+        return jsonify({"ok": False, "error": "state validation failed (CSRF check)",
+                        "step": "validate_state"}), 400
+
+    # CSRF passed: a new connect replaces the prior session connection. (Done
+    # AFTER the state gate so a rejected/forged attempt cannot drop a working
+    # session.) A later failure must not leave stale credentials behind.
+    _clear_session_creds()
 
     try:
         key_config = _validated_apikey_config()
@@ -880,6 +908,8 @@ def connect():
                     "perm": k.get("perm"), "simulated": SIMULATED})
     # Local demo cookie only. Production should add Secure on HTTPS.
     resp.set_cookie("demo_sid", sid, httponly=True, samesite="Lax")
+    # Consume the CSRF state so it cannot be replayed; /config mints a fresh one.
+    resp.delete_cookie("oauth_state")
     return resp
 
 
@@ -905,7 +935,7 @@ def balance():
 def demo_workflow_fields():
     """
     Return recommended manual-test fields based on the current account config.
-    This is read-only and mirrors the Type 1 OpenAPI workflow defaults.
+    This is read-only and mirrors the `openapi-user` OpenAPI workflow defaults.
     """
     creds = _session_creds()
     if not creds:

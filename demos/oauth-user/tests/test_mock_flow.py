@@ -36,6 +36,19 @@ def _set_common_env(monkeypatch, ai_builder_code="ABCD1234", simulated="1",
     monkeypatch.setenv("APIKEY_PASSPHRASE", "MockPassphrase1!")
 
 
+def _connect(client, **body):
+    """
+    POST /api/connect with a valid OAuth CSRF `state`.
+
+    /config mints the state and sets the matching httpOnly `oauth_state` cookie on
+    this client, which /api/connect compares against before any external call.
+    Tests that assert a later rejection step still pass through the state gate.
+    """
+    state = client.get("/config").get_json()["state"]
+    body.setdefault("state", state)
+    return client.post("/api/connect", json=body)
+
+
 @pytest.fixture()
 def client(monkeypatch):
     _set_common_env(monkeypatch, api_key_perm="trade")
@@ -98,7 +111,7 @@ def test_config_reports_mock(client):
 
 
 def test_full_mock_flow_and_no_secret_leak(read_only_client):
-    connect = read_only_client.post("/api/connect", json={"code": "mock-code"})
+    connect = _connect(read_only_client, code="mock-code")
     body = connect.get_json()
     assert connect.status_code == 200
     assert body["ok"] is True
@@ -120,6 +133,75 @@ def test_full_mock_flow_and_no_secret_leak(read_only_client):
     assert any(d["ccy"] == "USDT" for d in data["details"])
 
     assert "mock-secret" not in bal.get_data(as_text=True)
+
+
+def test_config_mints_and_reuses_oauth_state(client):
+    first = client.get("/config").get_json()["state"]
+    assert first
+    # The state must survive the authorize -> callback full-page reload, so a second
+    # /config on the same browser session reuses the cookie instead of re-minting.
+    assert client.get("/config").get_json()["state"] == first
+
+
+def test_connect_without_state_is_rejected_before_token_exchange(client, monkeypatch):
+    import app as app_module
+
+    exchange_token = Mock(side_effect=AssertionError("exchange_token should not be called"))
+    monkeypatch.setattr(app_module.okx, "exchange_token", exchange_token)
+
+    # /config sets the oauth_state cookie; the body deliberately omits the echo.
+    client.get("/config")
+    response = client.post("/api/connect", json={"code": "mock-code"})
+    body = response.get_json()
+    assert response.status_code == 400
+    assert body["ok"] is False
+    assert body["step"] == "validate_state"
+    assert body["error"] == "state validation failed (CSRF check)"
+    exchange_token.assert_not_called()
+
+    # The token exchange never ran, so no credentials were stored for this session.
+    balance = client.get("/api/balance")
+    assert balance.status_code == 400
+    assert balance.get_json()["error"] == "not connected yet"
+
+
+def test_connect_with_wrong_state_is_rejected_before_token_exchange(client, monkeypatch):
+    import app as app_module
+
+    exchange_token = Mock(side_effect=AssertionError("exchange_token should not be called"))
+    monkeypatch.setattr(app_module.okx, "exchange_token", exchange_token)
+
+    state = client.get("/config").get_json()["state"]
+    response = client.post("/api/connect", json={
+        "code": "mock-code",
+        "state": state + "-tampered",
+    })
+    body = response.get_json()
+    assert response.status_code == 400
+    assert body["ok"] is False
+    assert body["step"] == "validate_state"
+    assert body["error"] == "state validation failed (CSRF check)"
+    exchange_token.assert_not_called()
+
+    balance = client.get("/api/balance")
+    assert balance.status_code == 400
+    assert balance.get_json()["error"] == "not connected yet"
+
+
+def test_connect_state_is_single_use(client):
+    state = client.get("/config").get_json()["state"]
+    first = client.post("/api/connect", json={"code": "mock-code", "state": state})
+    assert first.status_code == 200
+    assert first.get_json()["ok"] is True
+
+    # A successful connect deletes the oauth_state cookie, so replaying the same
+    # value must fail even though it was valid a moment ago.
+    replay = client.post("/api/connect", json={"code": "mock-code", "state": state})
+    body = replay.get_json()
+    assert replay.status_code == 400
+    assert body["ok"] is False
+    assert body["step"] == "validate_state"
+    assert body["error"] == "state validation failed (CSRF check)"
 
 
 def test_balance_requires_connect_first(read_only_client):
@@ -144,7 +226,7 @@ def test_connect_rejects_placeholder_passphrase_before_external_calls(monkeypatc
     app_module.app.config.update(TESTING=True)
 
     with app_module.app.test_client() as c:
-        response = c.post("/api/connect", json={"code": "mock-code"})
+        response = _connect(c, code="mock-code")
 
     body = response.get_json()
     assert response.status_code == 400
@@ -167,10 +249,7 @@ def test_connect_rejects_unknown_callback_domain_before_external_calls(monkeypat
     app_module.app.config.update(TESTING=True)
 
     with app_module.app.test_client() as c:
-        response = c.post("/api/connect", json={
-            "code": "mock-code",
-            "domain": "https://evil.example",
-        })
+        response = _connect(c, code="mock-code", domain="https://evil.example")
 
     body = response.get_json()
     assert response.status_code == 400
@@ -192,7 +271,7 @@ def test_connect_rejects_invalid_default_base_url_before_external_calls(monkeypa
     app_module.app.config.update(TESTING=True)
 
     with app_module.app.test_client() as c:
-        response = c.post("/api/connect", json={"code": "mock-code"})
+        response = _connect(c, code="mock-code")
 
     body = response.get_json()
     assert response.status_code == 400
@@ -213,7 +292,7 @@ def test_real_connect_requires_oauth_credentials_before_external_calls(monkeypat
     app_module.app.config.update(TESTING=True)
 
     with app_module.app.test_client() as c:
-        response = c.post("/api/connect", json={"code": "real-code"})
+        response = _connect(c, code="real-code")
 
     body = response.get_json()
     assert response.status_code == 400
@@ -236,7 +315,7 @@ def test_real_connect_rejects_uppercase_oauth_placeholders_before_external_calls
     app_module.app.config.update(TESTING=True)
 
     with app_module.app.test_client() as c:
-        response = c.post("/api/connect", json={"code": "real-code"})
+        response = _connect(c, code="real-code")
 
     body = response.get_json()
     assert response.status_code == 400
@@ -247,17 +326,14 @@ def test_real_connect_rejects_uppercase_oauth_placeholders_before_external_calls
 
 
 def test_connect_accepts_allowlisted_callback_domain_with_trailing_slash(client):
-    connect = client.post("/api/connect", json={
-        "code": "mock-code",
-        "domain": "https://www.okx.com/",
-    })
+    connect = _connect(client, code="mock-code", domain="https://www.okx.com/")
     body = connect.get_json()
     assert connect.status_code == 200
     assert body["ok"] is True
 
 
 def test_failed_reconnect_clears_old_session_credentials(client, monkeypatch):
-    connect = client.post("/api/connect", json={"code": "mock-code"})
+    connect = _connect(client, code="mock-code")
     assert connect.status_code == 200
     assert client.get("/api/balance").status_code == 200
 
@@ -269,7 +345,7 @@ def test_failed_reconnect_clears_old_session_credentials(client, monkeypatch):
         lambda *args, **kwargs: {"code": "bad_code", "msg": "invalid code"},
     )
 
-    reconnect = client.post("/api/connect", json={"code": "bad-code"})
+    reconnect = _connect(client, code="bad-code")
     body = reconnect.get_json()
     assert reconnect.status_code == 400
     assert body["ok"] is False
@@ -281,14 +357,14 @@ def test_failed_reconnect_clears_old_session_credentials(client, monkeypatch):
 
 
 def test_balance_ccy_filter(read_only_client):
-    read_only_client.post("/api/connect", json={"code": "mock-code"})
+    _connect(read_only_client, code="mock-code")
     bal = read_only_client.get("/api/balance?ccy=BTC").get_json()
     details = bal["raw"]["data"][0]["details"]
     assert [d["ccy"] for d in details] == ["BTC"]
 
 
 def test_balance_rejects_invalid_ccy_filter(read_only_client):
-    read_only_client.post("/api/connect", json={"code": "mock-code"})
+    _connect(read_only_client, code="mock-code")
     response = read_only_client.get("/api/balance?ccy=BTC%2FUSDT")
     body = response.get_json()
     assert response.status_code == 400
@@ -297,7 +373,7 @@ def test_balance_rejects_invalid_ccy_filter(read_only_client):
 
 
 def test_workflow_rejects_read_only_key(read_only_client):
-    read_only_client.post("/api/connect", json={"code": "mock-code"})
+    _connect(read_only_client, code="mock-code")
     response = read_only_client.post("/api/spot/open", json={
         "instId": "BTC-USDT",
         "quoteAmount": "10",
@@ -321,7 +397,7 @@ def test_workflow_rejects_read_only_key(read_only_client):
 def test_workflows_reject_non_positive_or_non_finite_quote_amounts(
     client, monkeypatch, path, inst_id, quote_amount, expected_error,
 ):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     place_order = Mock(side_effect=AssertionError("place_order should not be called"))
@@ -346,7 +422,7 @@ def test_demo_workflow_fields_require_connect(read_only_client):
 
 
 def test_demo_workflow_fields_use_account_config_defaults(read_only_client):
-    read_only_client.post("/api/connect", json={"code": "mock-code"})
+    _connect(read_only_client, code="mock-code")
     response = read_only_client.get("/api/demo-workflow-fields")
     body = response.get_json()
 
@@ -371,7 +447,7 @@ def test_demo_workflow_fields_use_account_config_defaults(read_only_client):
 
 
 def test_demo_workflow_fields_show_net_position_side(read_only_client, monkeypatch):
-    read_only_client.post("/api/connect", json={"code": "mock-code"})
+    _connect(read_only_client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -394,7 +470,7 @@ def test_demo_workflow_fields_show_net_position_side(read_only_client, monkeypat
 def test_demo_workflow_fields_keep_spot_available_for_spot_only_account_mode(
     read_only_client, monkeypatch,
 ):
-    read_only_client.post("/api/connect", json={"code": "mock-code"})
+    _connect(read_only_client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -433,7 +509,7 @@ def test_trade_mode_helpers_cover_account_mode_matrix(client):
 
 
 def test_order_injects_ai_builder_code_as_tag(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     order = client.post("/api/order", json={
         "instId": "BTC-USDT",
         "side": "buy",
@@ -448,7 +524,7 @@ def test_order_injects_ai_builder_code_as_tag(client):
 
 
 def test_order_parses_false_reduce_only(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     captured = {}
@@ -478,7 +554,7 @@ def test_order_parses_false_reduce_only(client, monkeypatch):
     ({"posSide": "left"}, "posSide must be one of: long, net, short"),
 ])
 def test_order_rejects_invalid_local_inputs(client, monkeypatch, patch, expected_error):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     place_order = Mock(side_effect=AssertionError("place_order should not be called"))
@@ -501,7 +577,7 @@ def test_order_rejects_invalid_local_inputs(client, monkeypatch, patch, expected
 
 
 def test_live_order_requires_confirmation(live_client, monkeypatch):
-    live_client.post("/api/connect", json={"code": "mock-code"})
+    _connect(live_client, code="mock-code")
     import app as app_module
 
     def fail_place_order(*args, **kwargs):
@@ -633,7 +709,7 @@ def test_okx_client_balance_uses_query_builder_and_validates_ccy(monkeypatch):
     ("/api/swap/close", "swap-close", {"instId": "BTC-USDT-SWAP", "mgnMode": "cross"}),
 ])
 def test_demo_workflow_routes_inject_ai_builder_code(client, path, workflow, payload):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post(path, json=payload)
     body = response.get_json()
     assert response.status_code == 200
@@ -646,7 +722,7 @@ def test_demo_workflow_routes_inject_ai_builder_code(client, path, workflow, pay
 
 
 def test_spot_open_uses_explicit_inst_id_and_quote_amount(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/spot/open", json={
         "instId": "ETH-USDT",
         "quoteAmount": "25",
@@ -662,7 +738,7 @@ def test_spot_open_uses_explicit_inst_id_and_quote_amount(client):
 
 
 def test_spot_open_defaults_td_mode_from_account_level(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
 
     response = client.post("/api/spot/open", json={
         "instId": "BTC-USDT",
@@ -675,7 +751,7 @@ def test_spot_open_defaults_td_mode_from_account_level(client):
 
 
 def test_spot_open_defaults_cash_for_spot_account_mode(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -695,7 +771,7 @@ def test_spot_open_defaults_cash_for_spot_account_mode(client, monkeypatch):
 
 
 def test_spot_open_rejects_account_mode_incompatible_td_mode(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/spot/open", json={
         "instId": "BTC-USDT",
         "quoteAmount": "10",
@@ -708,7 +784,7 @@ def test_spot_open_rejects_account_mode_incompatible_td_mode(client):
 
 
 def test_spot_open_rejects_non_string_td_mode(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/spot/open", json={
         "instId": "BTC-USDT",
         "quoteAmount": "10",
@@ -721,7 +797,7 @@ def test_spot_open_rejects_non_string_td_mode(client):
 
 
 def test_spot_open_preflight_reads_full_balance(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     captured = {}
@@ -741,7 +817,7 @@ def test_spot_open_preflight_reads_full_balance(client, monkeypatch):
 
 
 def test_spot_open_uses_instrument_quote_currency(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -769,7 +845,7 @@ def test_spot_open_uses_instrument_quote_currency(client, monkeypatch):
 
 
 def test_spot_close_rejects_base_size_above_available_balance(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/spot/close", json={
         "instId": "BTC-USDT",
         "baseSize": "1",
@@ -781,7 +857,7 @@ def test_spot_close_rejects_base_size_above_available_balance(client):
 
 
 def test_spot_close_uses_request_td_mode(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/spot/close", json={
         "instId": "BTC-USDT",
         "quoteAmount": "10",
@@ -793,7 +869,7 @@ def test_spot_close_uses_request_td_mode(client):
 
 
 def test_swap_open_quote_amount_converts_to_contracts(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/swap/open", json={
         "instId": "BTC-USDT-SWAP",
         "quoteAmount": "25",
@@ -807,7 +883,7 @@ def test_swap_open_quote_amount_converts_to_contracts(client):
 
 
 def test_swap_open_uses_settlement_currency_balance_for_linear_swap(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -859,7 +935,7 @@ def test_swap_open_uses_settlement_currency_balance_for_linear_swap(client, monk
 
 
 def test_swap_open_rejects_inverse_swap_instrument(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
     get_account_config = Mock()
     get_account_balance = Mock()
@@ -903,7 +979,7 @@ def test_swap_open_rejects_inverse_swap_instrument(client, monkeypatch):
 
 
 def test_swap_open_net_mode_omits_pos_side(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -924,7 +1000,7 @@ def test_swap_open_net_mode_omits_pos_side(client, monkeypatch):
 
 
 def test_swap_open_accepts_account_modes_two_and_four(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     for acct_lv in ("2", "4"):
@@ -947,7 +1023,7 @@ def test_swap_open_accepts_account_modes_two_and_four(client, monkeypatch):
 
 
 def test_swap_open_rejects_non_string_td_mode(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/swap/open", json={
         "instId": "BTC-USDT-SWAP",
         "quoteAmount": "10",
@@ -960,7 +1036,7 @@ def test_swap_open_rejects_non_string_td_mode(client):
 
 
 def test_swap_open_rejects_pos_side_in_net_mode(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -981,7 +1057,7 @@ def test_swap_open_rejects_pos_side_in_net_mode(client, monkeypatch):
 
 
 def test_swap_open_rejects_short_pos_side_for_long_workflow(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/swap/open", json={
         "instId": "BTC-USDT-SWAP",
         "quoteAmount": "10",
@@ -994,7 +1070,7 @@ def test_swap_open_rejects_short_pos_side_for_long_workflow(client):
 
 
 def test_swap_open_rejects_non_string_pos_side(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/swap/open", json={
         "instId": "BTC-USDT-SWAP",
         "quoteAmount": "10",
@@ -1007,7 +1083,7 @@ def test_swap_open_rejects_non_string_pos_side(client):
 
 
 def test_swap_open_rejects_spot_account_mode(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -1027,7 +1103,7 @@ def test_swap_open_rejects_spot_account_mode(client, monkeypatch):
 
 
 def test_swap_close_net_mode_omits_pos_side(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -1047,7 +1123,7 @@ def test_swap_close_net_mode_omits_pos_side(client, monkeypatch):
 
 
 def test_swap_close_uses_position_matching_margin_mode(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -1083,7 +1159,7 @@ def test_swap_close_uses_position_matching_margin_mode(client, monkeypatch):
 
 
 def test_swap_close_rejects_spot_account_mode(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -1103,7 +1179,7 @@ def test_swap_close_rejects_spot_account_mode(client, monkeypatch):
 
 
 def test_swap_close_rejects_pos_side_in_net_mode(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
 
     monkeypatch.setattr(
@@ -1124,7 +1200,7 @@ def test_swap_close_rejects_pos_side_in_net_mode(client, monkeypatch):
 
 
 def test_swap_close_rejects_short_pos_side_for_long_workflow(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/swap/close", json={
         "instId": "BTC-USDT-SWAP",
         "mgnMode": "cross",
@@ -1137,7 +1213,7 @@ def test_swap_close_rejects_short_pos_side_for_long_workflow(client):
 
 
 def test_swap_close_rejects_inverse_swap_instrument(client, monkeypatch):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     import app as app_module
     get_account_config = Mock()
     get_positions = Mock()
@@ -1181,7 +1257,7 @@ def test_swap_close_rejects_inverse_swap_instrument(client, monkeypatch):
 
 
 def test_swap_close_rejects_non_string_mgn_mode(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/swap/close", json={
         "instId": "BTC-USDT-SWAP",
         "mgnMode": 0,
@@ -1193,7 +1269,7 @@ def test_swap_close_rejects_non_string_mgn_mode(client):
 
 
 def test_swap_close_rejects_non_string_pos_side(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/swap/close", json={
         "instId": "BTC-USDT-SWAP",
         "mgnMode": "cross",
@@ -1206,7 +1282,7 @@ def test_swap_close_rejects_non_string_pos_side(client):
 
 
 def test_swap_close_requires_mgn_mode(client):
-    client.post("/api/connect", json={"code": "mock-code"})
+    _connect(client, code="mock-code")
     response = client.post("/api/swap/close", json={
         "instId": "BTC-USDT-SWAP",
     })
@@ -1217,7 +1293,7 @@ def test_swap_close_requires_mgn_mode(client):
 
 
 def test_order_requires_ai_builder_code(client_without_ai_builder_code):
-    client_without_ai_builder_code.post("/api/connect", json={"code": "mock-code"})
+    _connect(client_without_ai_builder_code, code="mock-code")
     order = client_without_ai_builder_code.post("/api/order", json={
         "instId": "BTC-USDT",
         "side": "buy",
@@ -1232,7 +1308,7 @@ def test_order_requires_ai_builder_code(client_without_ai_builder_code):
 
 
 def test_order_rejects_invalid_ai_builder_code(client_with_invalid_ai_builder_code):
-    client_with_invalid_ai_builder_code.post("/api/connect", json={"code": "mock-code"})
+    _connect(client_with_invalid_ai_builder_code, code="mock-code")
     order = client_with_invalid_ai_builder_code.post("/api/order", json={
         "instId": "BTC-USDT",
         "side": "buy",
@@ -1247,7 +1323,7 @@ def test_order_rejects_invalid_ai_builder_code(client_with_invalid_ai_builder_co
 
 
 def test_demo_workflow_requires_ai_builder_code(client_without_ai_builder_code):
-    client_without_ai_builder_code.post("/api/connect", json={"code": "mock-code"})
+    _connect(client_without_ai_builder_code, code="mock-code")
     response = client_without_ai_builder_code.post("/api/spot/open", json={
         "instId": "BTC-USDT",
         "quoteAmount": "10",

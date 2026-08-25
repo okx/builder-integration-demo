@@ -1,5 +1,5 @@
 ---
-name: self-account-okx-trade-cli
+name: cli-user
 description: OKX Trade CLI order tool for the user's own OKX account through the local `okx` command. Use when a terminal or coding agent can run supported OKX order-producing commands with AI Builder Code attribution.
 ---
 
@@ -7,7 +7,8 @@ description: OKX Trade CLI order tool for the user's own OKX account through the
 
 Use this skill when the user is working through the local OKX Trade CLI `okx` command.
 
-For OKX MCP in ChatGPT, Claude Desktop, or another MCP host, use `self-account-okx-mcp` instead.
+For OKX MCP in ChatGPT, Claude Desktop, or another MCP host, use the `mcp-user`
+skill ([../mcp-user/SKILL.md](../mcp-user/SKILL.md)) instead.
 
 ## AI Builder Code
 
@@ -75,7 +76,7 @@ before any order write.
 
 ### Spot Open
 
-Buy a small BTC-USDT spot amount with USDT.
+Buy a small BTC-USDT spot amount with USDT. (API-Key mode: replace `--demo` with `--profile <demo-profile>` in the commands below — see Credential check.)
 
 ```bash
 okx --demo account config --json
@@ -201,7 +202,7 @@ okx --demo swap positions BTC-USDT-SWAP --json
 
 Use these as the patterns for supported order-producing CLI commands. For
 the broader supported command reference, read
-[../../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md](../../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md).
+[../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md](../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md).
 Do not add AI Builder Code to other CLI commands unless the command exposes
 `--aiBuilderCode`. Do not invent alternate field names or flag names such as
 `--ai-builder-code`.

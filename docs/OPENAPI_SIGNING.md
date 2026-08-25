@@ -1,13 +1,13 @@
 # OKX OpenAPI signing
 
-Private OKX OpenAPI requests use the same HMAC signing rule in Type 1 and Type 3 demos.
+Private OKX OpenAPI requests use the same HMAC signing rule in the `openapi-user` and `oauth-user` demos.
 
 This document applies to:
 
-- Type 1 local OpenAPI scripts, where the user's own API Key signs requests.
-- Type 3 third-party Fast API/OpenAPI server code, where the server signs requests with each end user's created Fast API Key.
+- `openapi-user` local OpenAPI scripts, where the user's own API Key signs requests.
+- `oauth-user` third-party Fast API/OpenAPI server code, where the server signs requests with each end user's created Fast API Key.
 
-It does not apply to Type 2 CLI/MCP skills in this repo; those paths use the OKX-provided execution backend.
+It does not apply to the `cli-user` and `mcp-user` skills in this repo; those paths use the OKX-provided execution backend.
 
 ```text
 timestamp      = ISO8601 UTC with 3-digit milliseconds, for example 2020-12-08T09:08:57.715Z
@@ -47,7 +47,7 @@ GET  /api/v5/account/balance?ccy=BTC    body=""   -> pS6nHuBl6Qc9S0h+soCkCVHaVHZ
 
 Tests and snippets:
 
-- Type 1 Python test: [../demos/self-account-openapi/test_strategy_demo.py](../demos/self-account-openapi/test_strategy_demo.py)
-- Type 3 Python test: [../demos/third-party-fastapi/tests/test_sign.py](../demos/third-party-fastapi/tests/test_sign.py)
-- Type 3 JavaScript check: [../demos/third-party-fastapi/tests/verify_js_sign.js](../demos/third-party-fastapi/tests/verify_js_sign.js)
-- Type 3 language snippets appendix: [../demos/third-party-fastapi/SIGNING.md](../demos/third-party-fastapi/SIGNING.md)
+- `openapi-user` Python test: [../demos/openapi-user/test_strategy_demo.py](../demos/openapi-user/test_strategy_demo.py)
+- `oauth-user` Python test: [../demos/oauth-user/tests/test_sign.py](../demos/oauth-user/tests/test_sign.py)
+- `oauth-user` JavaScript check: [../demos/oauth-user/tests/verify_js_sign.js](../demos/oauth-user/tests/verify_js_sign.js)
+- `oauth-user` language snippets appendix: [../demos/oauth-user/SIGNING.md](../demos/oauth-user/SIGNING.md)

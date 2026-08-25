@@ -1,7 +1,8 @@
 # Third-party Fast API Testing Guide
 
-This demo has two test layers: local automated checks without Broker
-credentials, and real integration with a test Broker.
+This demo has two test layers: local automated checks without OAuth
+credentials, and real integration with your workbench-configured OAuth & Fast
+API app.
 
 The real integration checklist is written for the OKX Global site. For another
 OKX site, check endpoint availability and request schemas in the OpenAPI
@@ -11,9 +12,10 @@ User-facing validation should use real OKX OAuth/Fast API integration with
 
 - (a) Local automated tests: no network; verify signing, backend routes, frontend
   workflow state, and canned OKX-like responses through pytest and Node checks.
-- (b) Real integration checklist: after receiving test Broker credentials,
-  validate the simulated trading flow step by step. Integration pitfalls and
-  error codes are centralized in [PITFALLS.md](PITFALLS.md).
+- (b) Real integration checklist: once your OAuth & Fast API app is configured in
+  the AI Builder workbench and you have the **emailed** `client_id`/`client_secret`
+  in hand, validate the simulated trading flow step by step. Integration pitfalls
+  and error codes are centralized in [PITFALLS.md](PITFALLS.md).
 
 Security note: automated tests do not use real secrets. `mock-secret` is a
 placeholder string, not a credential. `secretKey` and `passphrase` must never
@@ -24,7 +26,7 @@ appear in frontend responses, logs, or git.
 Install dev dependencies and run:
 
 ```bash
-cd demos/third-party-fastapi
+cd demos/oauth-user
 test -d .tmpvenv || python3 -m venv .tmpvenv
 source .tmpvenv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -73,8 +75,8 @@ This only proves the language snippets are algorithmically equivalent. The Pytho
 
 Prerequisites:
 
-- BD has provided `client_id` and `client_secret`.
-- Fast API permission and Broker IP allowlist are enabled.
+- `client_id` and `client_secret` emailed to you after you confirm your email (OAuth & Fast API configured in the workbench Settings).
+- Fast API is enabled for your app, with the OAuth-exempt and user IP allowlists configured.
 - `redirect_uri` is registered in the OKX whitelist.
 - Start with simulated trading: `SIMULATED=1`.
 
@@ -100,7 +102,7 @@ set `AI_BUILDER_CODE=<AI_BUILDER_CODE>` before order workflow tests. Keep
 ### TC-1: OAuth Connect
 
 1. [ ] Authorization page opens and shows Fast API permission. If not, check `scope=fast_api`.
-2. [ ] Callback returns with `code`; the UI logs `Detected OAuth callback: code=...`.
+2. [ ] Callback returns with `code`; the UI logs `Detected OAuth callback: code received (hidden)` — it must NOT log any part of the code.
 3. [ ] State validation passes; no `state validation failed` message appears.
 4. [ ] Token exchange succeeds; `/api/connect` has no `step=exchange_token` error.
 5. [ ] Delete old key is accepted; `code=0` or `59506` are both valid.
