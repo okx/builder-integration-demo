@@ -1,5 +1,5 @@
 ---
-name: self-account-okx-mcp
+name: mcp-user
 description: OKX MCP order placement tool for the user's own OKX account in ChatGPT, Claude Desktop, or another MCP-capable app. Use supported OKX MCP order-producing tools with AI Builder Code attribution through the `aiBuilderCode` tool argument.
 ---
 
@@ -7,7 +7,8 @@ description: OKX MCP order placement tool for the user's own OKX account in Chat
 
 Use this skill when the user is working through OKX MCP in the selected app.
 
-For local terminal use with the `okx` command, use `self-account-okx-trade-cli` instead.
+For local terminal use with the `okx` command, use the `cli-user` skill
+([../cli-user/SKILL.md](../cli-user/SKILL.md)) instead.
 
 ## AI Builder Code
 
@@ -22,6 +23,17 @@ Pass it as the MCP tool argument `aiBuilderCode`. OKX records it on the final
 order for tracking and attribution.
 
 Pass `aiBuilderCode` only to supported OKX MCP order-producing tools.
+
+## Authorization and connect gate
+
+OKX authorization is handled by the MCP host app. Do not ask for OKX API keys,
+secret keys, passphrases, OAuth tokens, or refresh tokens.
+
+Before running any workflow, confirm OKX is connected. The first read-only
+preflight in each workflow (`account_get_config` with `{"simulatedTrading":
+true}`) is also the connect check: if it is unavailable or returns a
+missing/expired-authorization error, stop and ask the user to connect or
+reauthorize OKX in the app before continuing.
 
 ## Demo Order Workflows
 
@@ -130,7 +142,9 @@ Read-only preflight:
 ]
 ```
 
-Order tool call:
+Order tool call — first read account config: if `acctLv="1"` **stop** (spot-mode
+account, swap not supported); the `tdMode` below (`cross`) is for acctLv 2/3/4; add
+`"posSide": "long"` only when `posMode=long_short_mode` (else omit it):
 
 ```json
 {
@@ -203,21 +217,16 @@ Verify with `swap_get_positions`.
 
 Use this as the pattern for supported MCP order-producing tools. For the broader
 supported tool reference, read
-[../../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md](../../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md).
+[../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md](../../docs/AI_BUILDER_CODE_SUPPORT_REFERENCE.md).
 Do not invent alternate field names or pass raw `tag`. Do not add `aiBuilderCode` to
 cancel, amend, query, read, leverage, stop, earn, lending, DCD, transfer, or
 configuration tools unless their tool schema explicitly exposes attribution
 support.
 
-## Authorization
-
-OKX authorization is handled by the MCP host app. Do not ask for OKX API keys, secret keys, passphrases, OAuth tokens, or refresh tokens.
-
-If the MCP tool reports missing or expired authorization, ask the user to connect or reauthorize OKX in the app before continuing.
-
 ## Workflow
 
-1. Confirm the user wants the MCP path.
+1. Confirm the user wants the MCP path, then run the connect gate (see
+   **Authorization and connect gate** above).
 2. Select a supported OKX MCP order-producing tool.
 3. For supported order-producing tools, validate the AI Builder Code value and pass `aiBuilderCode`.
 4. Before any order write, summarize the final order parameters and wait for explicit confirmation.

@@ -1,8 +1,8 @@
 # OKX Fast API Integration Guide
 
-> This is the Type 3 implementation guide for AI assistants and developers. Type 3 means a third-party service uses OKX OAuth Broker + Fast API to create and store long-lived API Keys for end users. The flow and parameters are language-neutral; the `backend/` folder is only one Python/Flask reference implementation.
+> This is the `oauth-user` implementation guide for AI assistants and developers. `oauth-user` means a third-party service uses OKX OAuth Broker + Fast API to create and store long-lived API Keys for end users. The flow and parameters are language-neutral; the `backend/` folder is only one Python/Flask reference implementation.
 >
-> If the user is trading only their own OKX account, even from their own VPS or server, go back to `../../docs/USER_TYPES.md` and choose Type 1 or Type 2.
+> If the user is trading only their own OKX account, even from their own VPS or server, go back to `../../docs/USER_TYPES.md` and choose `openapi-user`, `cli-user`, or `mcp-user`.
 >
 > Before implementing against a real environment, read [PITFALLS.md](PITFALLS.md). It centralizes token path, `redirect_uri` encoding, `bindApp`, site domain, signing, and error-code checks.
 >
@@ -20,21 +20,22 @@ Why a third-party service uses Fast API instead of plain OAuth:
 | Works after user leaves the page | Only while tokens can still be refreshed | Yes, no user presence required |
 | Best fit | User-present interactive actions | Third-party hosted user strategies or bots |
 
-Conclusion: use Type 3 Fast API when a third-party service needs long-lived trading ability for end users. Do not choose Type 3 just because a self-account bot runs on a server.
+Conclusion: use `oauth-user` Fast API when a third-party service needs long-lived trading ability for end users. Do not choose `oauth-user` just because a self-account bot runs on a server.
 
 ## Prerequisites
 
 These prerequisites are handled by the integrating party, not by code:
 
-1. Contact BD to become an OAuth Broker and enable Fast API permission plus the Broker IP allowlist.
-2. Provide the OAuth whitelist, redirect URL, logo, and CORS domains during application.
-3. After approval, get `client_id` and `client_secret` by email.
-4. Register the exact `redirect_uri` with OKX; otherwise authorization fails.
+1. Apply for AI Builder on the AI Builder Program page (`https://www.okx.com/agent-tradekit/builder`) and obtain your Builder Code; the flow also asks you to confirm an email address. OKX sends a confirmation email there — confirm it (the `client_id`/`client_secret` in step 4 are emailed to that address).
+2. In the AI Builder workbench, open **Settings** and configure your OAuth & Fast API info: app name and OAuth logo, app URLs (redirect URL and CORS/app domains), and the OAuth-exempt IP allowlist (up to 10 IPs).
+3. Enable **Fast API**, set the app name, and configure the user IP allowlist (up to 200 IPs).
+4. After confirming your email, you receive your `client_id` and `client_secret` by email (if your workbench Settings also displays them, it's the same pair).
+5. Register the exact `redirect_uri`; otherwise authorization fails.
 
 ## Hard Constraints
 
 - Fast API supports authorization code mode only: `access_type=offline`, `scope=fast_api`. Do not implement Fast API with PKCE.
-- `client_secret`, created `apiKey`, created `secretKey`, and `passphrase` are backend-only customer-sensitive credentials. Never put them in frontend code, logs, analytics, crash reports, or git.
+- `client_secret`, created `apiKey`, created `secretKey`, and `passphrase` are backend-only customer-sensitive credentials. Never put them in frontend code, **prompts**, logs, analytics, crash reports, or git; store them on the backend **encrypted and isolated per user**.
 - One Broker can have only one active Fast API Key for one user. Delete the old key before creating a new one.
 - `access_token` is used only to create the Fast API Key. It lasts 1 hour and has no refresh token. The created API Key is the long-lived credential.
 
@@ -44,8 +45,10 @@ These prerequisites are handled by the integrating party, not by code:
 [Frontend] 1. authorize(scope=fast_api) -> OKX authorization page
              User signs in and authorizes
 [Frontend] 2. Callback redirect_uri?code=...&state=...&domain=...
-             Validate state; send code and optional domain to backend
-[Backend]  3. POST exchange code for access_token with client_secret
+             send code + state + domain to backend (frontend check is only defense-in-depth)
+[Backend]  3. Validate state (echoed value == httpOnly oauth_state cookie) BEFORE
+             exchanging; then POST exchange code for access_token with client_secret.
+             State is minted by /config, single-use, and consumed here.
 [Backend]  4. POST delete old Fast API Key, ignore 59506
 [Backend]  5. POST create Fast API Key and store it encrypted on backend
 [Backend]  6. Use that API Key to sign OpenAPI business requests
@@ -60,7 +63,10 @@ OKX Web SDK CDN:
 
 ```js
 OKEXOAuthSDK.init({ requestUrl: 'https://www.okx.com' });
-const state = OKEXOAuthSDK.generateState(); // Store this random value for CSRF protection.
+// CSRF state is minted by the backend /config (bound to an httpOnly cookie) and
+// verified server-side at /api/connect. Fetch it here rather than generating it
+// client-side, so the value the backend can check is the one you authorize with.
+const state = (await (await fetch('/config')).json()).state;
 OKEXOAuthSDK.authorize({
   response_type: 'code',
   access_type:  'offline',          // Fast API requires offline.
@@ -83,7 +89,12 @@ The callback looks like:
 https://yourapp.com/callback?code=...&state=...&domain=https://www.okx.com
 ```
 
-- Always validate callback `state` against the stored outbound `state`. Discard the callback on mismatch.
+- Send `code` **and `state`** to the backend. The backend performs the
+  authoritative CSRF check (echoed `state` == httpOnly `oauth_state` cookie, via
+  `secrets.compare_digest`) **before** exchanging the code, then consumes the
+  cookie (single-use). A frontend `state` comparison is fine as defense-in-depth
+  but must not be the only check — it is bypassable by posting to `/api/connect`
+  directly.
 - This demo checklist is written for OKX Global. When adapting to another OKX
   site, the callback `domain`, frontend authorization site, backend REST domain,
   and endpoint availability must be checked against the OpenAPI Markdown docs.

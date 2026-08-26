@@ -18,24 +18,25 @@ This module has two groups of calls:
 Security contract:
   client_secret, created secretKey, and passphrase are backend-only.
   Never return them to the frontend, log them, or hard-code them.
+
+Note on `simulated`:
+  simulated=True sends the OKX `x-simulated-trading: 1` header. This is a real
+  OKX API call against the demo-trading environment, not a mock or fake response.
+
+Testing:
+  These functions make real HTTP calls via `requests`. Tests stub the module's
+  functions (or `requests`) at the test layer with monkeypatch — there is no
+  in-code mock switch here.
 """
 
 import base64
 import hashlib
 import hmac
 import json
-import os
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import requests
-
-
-# Test-only override. MOCK=1 makes external-call helpers return canned OKX-like
-# responses for automated tests; do not add it to .env or use it as a demo path.
-# The environment is read at call time so tests can toggle this safely.
-def _mock_enabled() -> bool:
-    return os.environ.get("MOCK", "") == "1"
 
 
 # OKX API paths. Real integration confirmed that token exchange uses /v5/...,
@@ -106,138 +107,8 @@ def _public_headers(simulated: bool = True) -> dict:
     return headers
 
 
-# Mock responses contain only placeholder data and no real credentials.
-
-def _mock_token() -> dict:
-    return {"access_token": "mock-token", "token_type": "bearer", "expires_in": 3600}
-
-
-def _mock_delete() -> dict:
-    return {"code": "0", "msg": "", "data": []}
-
-
-def _mock_create(passphrase: str, label: str, perm: str, bind_app: bool) -> dict:
-    return {
-        "code": "0",
-        "msg": "",
-        "data": [{
-            "label": label,
-            "apiKey": "mock-apikey-0000111122223333",
-            "secretKey": "mock-secret",
-            "passphrase": passphrase or "mock-passphrase",
-            "perm": perm,
-            "bindApp": bind_app,
-        }],
-    }
-
-
-def _mock_balance(ccy: str = None) -> dict:
-    details = [
-        {"ccy": "USDT", "eq": "1000.5", "availBal": "950.0", "frozenBal": "50.5",
-         "availEq": "950.0", "cashBal": "1000.5"},
-        {"ccy": "BTC", "eq": "0.02", "availBal": "0.02", "frozenBal": "0",
-         "availEq": "0.02", "cashBal": "0.02"},
-    ]
-    if ccy:
-        wanted = {c.strip().upper() for c in ccy.split(",")}
-        details = [d for d in details if d["ccy"] in wanted]
-    return {
-        "code": "0",
-        "msg": "",
-        "data": [{
-            "uTime": "1700000000000",
-            "totalEq": "1200.0",
-            "isoEq": "0",
-            "adjEq": "1180.0",
-            "details": details,
-        }],
-    }
-
-
-def _mock_ticker(inst_id: str) -> dict:
-    return {
-        "code": "0",
-        "msg": "",
-        "data": [{
-            "instId": inst_id,
-            "last": "100000",
-            "bidPx": "99999.9",
-            "askPx": "100000.1",
-        }],
-    }
-
-
-def _mock_instruments(inst_type: str, inst_id: str) -> dict:
-    item = {
-        "instType": inst_type,
-        "instId": inst_id,
-        "state": "live",
-        "tickSz": "0.1",
-    }
-    if inst_type == "SWAP":
-        item.update({
-            "ctType": "linear",
-            "ctVal": "0.01",
-            "ctValCcy": "BTC",
-            "settleCcy": "USDT",
-            "minSz": "0.01",
-            "lotSz": "0.01",
-        })
-    else:
-        item.update({"minSz": "0.00001", "lotSz": "0.00000001"})
-    return {"code": "0", "msg": "", "data": [item]}
-
-
-def _mock_config() -> dict:
-    return {"code": "0", "msg": "", "data": [{"acctLv": "3", "posMode": "long_short_mode"}]}
-
-
-def _mock_positions(inst_id: str = None) -> dict:
-    return {
-        "code": "0",
-        "msg": "",
-        "data": [{
-            "instId": inst_id or "BTC-USDT-SWAP",
-            "posSide": "long",
-            "mgnMode": "cross",
-            "pos": "0.01",
-            "avgPx": "100000",
-            "upl": "0",
-        }],
-    }
-
-
-def _mock_order(tag: str = "") -> dict:
-    return {
-        "code": "0",
-        "msg": "",
-        "data": [{
-            "clOrdId": "",
-            "ordId": "mock-ord-0000111122223333",
-            "tag": tag or "",
-            "sCode": "0",
-            "sMsg": "",
-        }],
-    }
-
-
-def _mock_close_position(tag: str = "") -> dict:
-    return {
-        "code": "0",
-        "msg": "",
-        "data": [{
-            "instId": "BTC-USDT-SWAP",
-            "tag": tag or "",
-            "sCode": "0",
-            "sMsg": "",
-        }],
-    }
-
-
 def exchange_token(base_url: str, client_id: str, client_secret: str, code: str) -> dict:
     """Exchange OAuth authorization code for access_token. Fast API returns no refresh_token."""
-    if _mock_enabled():
-        return _mock_token()
     resp = requests.post(
         base_url + PATH_OAUTH_TOKEN,
         json={
@@ -259,8 +130,6 @@ def exchange_token(base_url: str, client_id: str, client_secret: str, code: str)
 
 def delete_oauth_apikey(base_url: str, access_token: str, simulated: bool = True) -> dict:
     """Delete an existing Fast API Key before create. Caller should allow 59506."""
-    if _mock_enabled():
-        return _mock_delete()
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     if simulated:
         headers["x-simulated-trading"] = "1"
@@ -272,8 +141,6 @@ def create_oauth_apikey(base_url: str, access_token: str, passphrase: str, label
                         perm: str = "read_only", bind_app: bool = True,
                         simulated: bool = True) -> dict:
     """Create a Fast API Key. Response data[0] contains apiKey, secretKey, and passphrase."""
-    if _mock_enabled():
-        return _mock_create(passphrase, label, perm, bind_app)
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     if simulated:
         headers["x-simulated-trading"] = "1"
@@ -288,8 +155,6 @@ def get_account_balance(base_url: str, api_key: str, secret_key: str, passphrase
     Example business API: GET /api/v5/account/balance.
     ccy is optional and filters by one or more comma-separated currencies.
     """
-    if _mock_enabled():
-        return _mock_balance(_ccy_filter(ccy))
     method = "GET"
     request_path = _with_query(PATH_ACCOUNT_BAL, {"ccy": _ccy_filter(ccy)})
     body = ""
@@ -311,8 +176,6 @@ def get_account_balance(base_url: str, api_key: str, secret_key: str, passphrase
 def get_account_config(base_url: str, api_key: str, secret_key: str, passphrase: str,
                        simulated: bool = True) -> dict:
     """Example business API: GET /api/v5/account/config."""
-    if _mock_enabled():
-        return _mock_config()
     method = "GET"
     request_path = PATH_ACCOUNT_CONFIG
     body = ""
@@ -333,8 +196,6 @@ def get_positions(base_url: str, api_key: str, secret_key: str, passphrase: str,
                   inst_type: str = None, inst_id: str = None,
                   simulated: bool = True) -> dict:
     """Example business API: GET /api/v5/account/positions."""
-    if _mock_enabled():
-        return _mock_positions(inst_id)
     method = "GET"
     request_path = _with_query(PATH_ACCOUNT_POSITIONS, {
         "instType": inst_type,
@@ -356,8 +217,6 @@ def get_positions(base_url: str, api_key: str, secret_key: str, passphrase: str,
 
 def get_ticker(base_url: str, inst_id: str, simulated: bool = True) -> dict:
     """Example public API: GET /api/v5/market/ticker."""
-    if _mock_enabled():
-        return _mock_ticker(inst_id)
     request_path = _with_query(PATH_MARKET_TICKER, {"instId": inst_id})
     return _parse(requests.get(
         base_url + request_path,
@@ -369,8 +228,6 @@ def get_ticker(base_url: str, inst_id: str, simulated: bool = True) -> dict:
 def get_instruments(base_url: str, inst_type: str, inst_id: str,
                     simulated: bool = True) -> dict:
     """Example public API: GET /api/v5/public/instruments."""
-    if _mock_enabled():
-        return _mock_instruments(inst_type, inst_id)
     request_path = _with_query(PATH_PUBLIC_INSTRUMENTS, {
         "instType": inst_type,
         "instId": inst_id,
@@ -392,8 +249,6 @@ def place_order(base_url: str, api_key: str, secret_key: str, passphrase: str,
     tag is the AI Builder Code attribution value and must be 1-16 alphanumeric characters.
     Live trading uses real funds; validate in simulated trading first.
     """
-    if _mock_enabled():
-        return _mock_order(tag)
     method = "POST"
     request_path = PATH_TRADE_ORDER
     body_obj = {"instId": inst_id, "tdMode": td_mode, "side": side,
@@ -433,8 +288,6 @@ def close_position(base_url: str, api_key: str, secret_key: str, passphrase: str
     Example write API: POST /api/v5/trade/close-position.
     tag is the AI Builder Code attribution value for the close-position order.
     """
-    if _mock_enabled():
-        return _mock_close_position(tag)
     method = "POST"
     request_path = PATH_TRADE_CLOSE_POSITION
     body_obj = {"instId": inst_id, "mgnMode": mgn_mode, "autoCxl": str(auto_cxl).lower()}

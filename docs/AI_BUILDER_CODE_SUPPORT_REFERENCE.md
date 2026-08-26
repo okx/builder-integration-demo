@@ -5,10 +5,10 @@ every listed endpoint, command, or tool is already implemented by the demos.
 
 Use it when extending beyond the implemented demo coverage:
 
-- Type 1 implements `POST /api/v5/trade/order` and
+- `openapi-user` implements `POST /api/v5/trade/order` and
   `POST /api/v5/trade/close-position`.
-- Type 2 delegates execution details to the selected CLI or MCP skill.
-- Type 3 implements `POST /api/order`, `POST /api/spot/open`,
+- `cli-user` and `mcp-user` delegate execution details to the selected CLI or MCP skill.
+- `oauth-user` implements `POST /api/order`, `POST /api/spot/open`,
   `POST /api/spot/close`, `POST /api/swap/open`, and `POST /api/swap/close`,
   which route to `POST /api/v5/trade/order` or
   `POST /api/v5/trade/close-position`.
@@ -47,10 +47,10 @@ request schema supports order attribution through `tag`.
 | Block trading | POST | `/api/v5/rfq/create-quote` | Quote tag. Associated block trade uses the same tag. |
 | Convert | POST | `/api/v5/asset/convert/estimate-quote` | Order tag, applicable to broker user. |
 | Convert | POST | `/api/v5/asset/convert/trade` | Order tag, applicable to broker user. |
-| Trade | POST | `/api/v5/trade/order` | Order tag. Used by the Type 1 and Type 3 spot/swap open workflows and spot close workflow. |
+| Trade | POST | `/api/v5/trade/order` | Order tag. Used by the `openapi-user` and `oauth-user` spot/swap open workflows and spot close workflow. |
 | Trade | POST | `/api/v5/trade/batch-orders` | Order tag per placed order. |
 | Trade | POST | `/api/v5/trade/order-algo` | Algo order tag. |
-| Trade | POST | `/api/v5/trade/close-position` | Close-position order tag. Used by the Type 1 and Type 3 swap close workflows. |
+| Trade | POST | `/api/v5/trade/close-position` | Close-position order tag. Used by the `openapi-user` and `oauth-user` swap close workflows. |
 | Trade | POST | `/api/v5/trade/cancel-all-after` | Cancel-All-After timer can be scoped by tag. Not an order placement endpoint. |
 | Spread trading | POST | `/api/v5/sprd/order` | Spread order tag. |
 | Copy trading | POST | `/api/v5/copytrading/algo-order` | Lead stop order tag. |
@@ -87,11 +87,12 @@ WebSocket schema first. Request-side `tag` operations include:
 
 OKX Trade CLI uses `--aiBuilderCode <code>`. The CLI skill shows a simple demo
 order:
-[../demos/self-account-cli-mcp/self-account-okx-trade-cli/SKILL.md](../demos/self-account-cli-mcp/self-account-okx-trade-cli/SKILL.md).
+[../demos/cli-user/SKILL.md](../demos/cli-user/SKILL.md).
 Use a CLI version that satisfies the selected CLI skill's minimum version. If
 the selected command help does not expose `--aiBuilderCode`, warn before placing
 an order and do not claim AI Builder Code attribution for that command.
-The minimum supported CLI version is `1.4.4`, tracked in the CLI skill; command
+The minimum supported CLI version is the one published in the CLI skill
+(`demos/cli-user/SKILL.md`) — do not duplicate the number here; command
 help/schema support is a warning check for AI Builder Code attribution.
 
 Supported CLI command forms:
@@ -130,11 +131,11 @@ demo does not use that parameter as AI Builder Code in CLI or MCP workflows.
 ## OKX MCP Extension Reference
 
 OKX MCP uses tool argument `aiBuilderCode` on supported order-producing tools.
-For this repo's Type 2 demo, pass `aiBuilderCode` explicitly for attributed
+For this repo's `mcp-user` demo, pass `aiBuilderCode` explicitly for attributed
 orders and do not rely on backend defaults. When provided and valid,
 `aiBuilderCode` becomes the final OKX request `tag`. The MCP skill shows a
 simple demo tool call:
-[../demos/self-account-cli-mcp/self-account-okx-mcp/SKILL.md](../demos/self-account-cli-mcp/self-account-okx-mcp/SKILL.md).
+[../demos/mcp-user/SKILL.md](../demos/mcp-user/SKILL.md).
 
 Supported MCP tools:
 

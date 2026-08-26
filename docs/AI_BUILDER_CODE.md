@@ -8,15 +8,15 @@
 |---|---|
 | Product/documentation | AI Builder Code |
 | Environment variable, when server code reads env config | `AI_BUILDER_CODE` |
-| Type 1 OpenAPI script argument | `--ai-builder-code` |
+| `openapi-user` OpenAPI script argument | `--ai-builder-code` |
 | Demo JSON response key | `ai_builder_code` |
 | OKX Trade CLI argument | `--aiBuilderCode` |
 | OKX MCP tool argument | `aiBuilderCode` |
 | OKX order request field | `tag` |
 
 Use one public attribution concept in this repo: AI Builder Code. Use
-`AI_BUILDER_CODE` only for Type 3 server environment configuration. Type 1
-OpenAPI scripts, Type 2 CLI skills, and Type 2 MCP skills pass the value
+`AI_BUILDER_CODE` only for `oauth-user` server environment configuration. `openapi-user`
+OpenAPI scripts, `cli-user` CLI skills, and `mcp-user` MCP skills pass the value
 directly through the selected command flag or tool argument instead of reading a
 demo `.env` file. Code may use language-native variable names internally.
 The `ai_builder_code` key appears only in demo JSON responses such as
@@ -47,11 +47,11 @@ Do not rename the OKX field to `ai_builder_code`; OKX expects the field name `ta
 
 ## Where It Appears
 
-- Type 1 local OpenAPI scripts pass AI Builder Code through the required
+- `openapi-user` local OpenAPI scripts pass AI Builder Code through the required
   `--ai-builder-code` command argument on order-producing commands.
-- Type 2 OKX Trade CLI skills pass AI Builder Code through `--aiBuilderCode`
+- `cli-user` OKX Trade CLI skills pass AI Builder Code through `--aiBuilderCode`
   only on supported order-producing CLI commands.
-- Type 2 OKX MCP skills pass AI Builder Code through the `aiBuilderCode` tool
+- `mcp-user` OKX MCP skills pass AI Builder Code through the `aiBuilderCode` tool
   argument on supported order-producing MCP tools.
-- Type 3 Fast API server code reads `AI_BUILDER_CODE` from server `.env` and
+- `oauth-user` Fast API server code reads `AI_BUILDER_CODE` from server `.env` and
   injects it into the order-producing requests implemented by that demo.

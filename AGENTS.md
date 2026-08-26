@@ -1,40 +1,68 @@
 # AGENTS.md - AI Builder repo rules
 
-You are helping users integrate OKX AI Builder. First identify the user's type, then read the matching demo. By default, do not read or copy another demo's implementation unless the user explicitly asks to compare paths.
+You are helping users integrate OKX AI Builder. There are **four** user types. First identify the user's type, then read the matching demo. By default, do not read or copy another demo's implementation unless the user explicitly asks to compare paths.
+
+Every demo folder under `demos/` uses the same skeleton: `README.md` is the
+entry doc, and it names the artifact the user takes into their own project.
+Each `README.md` has a `Copy vs Adapt` section that classifies every file in
+that folder. Follow it instead of copying a whole demo folder wholesale.
 
 ## User Type Routing
 
-1. **Self account + local OpenAPI script**
-   - Read `demos/self-account-openapi/README.md`.
+1. **`openapi-user` — self account + local OpenAPI script**
+   - Read `demos/openapi-user/README.md`.
    - Use when the user runs their own strategy on a user-controlled machine or server and trades only their own OKX account.
    - User configures their own OKX API Key locally.
    - Do not use OAuth Broker or Fast API.
    - Use `docs/OPENAPI_SIGNING.md` for HMAC signing rules.
+   - Artifact: `okx_openapi_client.py` copied verbatim (its public functions
+     default to `simulated=True`; production must pass `simulated=False`), with
+     `strategy_demo.py` adapted.
 
-2. **Self account + OKX Trade CLI/MCP**
-   - Read `demos/self-account-cli-mcp/README.md`.
-   - Use `demos/self-account-cli-mcp/self-account-okx-trade-cli/SKILL.md` for local `okx` command workflows.
-   - Use `demos/self-account-cli-mcp/self-account-okx-mcp/SKILL.md` for app-connected MCP workflows.
-   - Use only OKX Trade CLI or OKX MCP as the execution backend.
-   - OKX Trade CLI can use local API-key profiles or OAuth. OKX MCP uses host
-     app or connector authorization.
+2. **`cli-user` — self account + OKX Trade CLI**
+   - Read `demos/cli-user/README.md`, then `demos/cli-user/SKILL.md`.
+   - Use when the user drives trading through the local `okx` command in a
+     terminal or by a coding agent, for their own OKX account.
+   - OKX Trade CLI can use local API-key profiles or OAuth.
    - Do not use OAuth Broker or Fast API.
    - Do not implement OpenAPI signing in this repo path; the OKX backend handles execution.
+   - Artifact: `SKILL.md`. The user's agent uses it to drive the `okx` CLI.
+     Replace the `<AI_BUILDER_CODE>` placeholder with the user's real Builder
+     Code.
 
-3. **Third-party server + OKX Fast API/OpenAPI**
-   - Read `demos/third-party-fastapi/README.md`, `demos/third-party-fastapi/INTEGRATION_GUIDE.md`, and `demos/third-party-fastapi/PITFALLS.md`.
+3. **`mcp-user` — self account + OKX MCP**
+   - Read `demos/mcp-user/README.md`, then `demos/mcp-user/SKILL.md`.
+   - Use when the user's AI app calls OKX MCP (ChatGPT app, Claude Desktop, or
+     another app-connected MCP) for their own OKX account.
+   - OKX MCP authorization is handled by the host app or connector.
+   - Do not use OAuth Broker or Fast API.
+   - Do not implement OpenAPI signing in this repo path; the OKX backend handles execution.
+   - Artifact: `SKILL.md`. The user's agent uses it to call OKX MCP tools.
+     Replace the `<AI_BUILDER_CODE>` placeholder with the user's real Builder
+     Code.
+
+4. **`oauth-user` — third-party server + OKX Fast API/OpenAPI**
+   - Read `demos/oauth-user/README.md`, `demos/oauth-user/INTEGRATION_GUIDE.md`, and `demos/oauth-user/PITFALLS.md`.
    - Use when a third-party service creates and stores long-lived Fast API Keys for its end users.
-   - Keep the verified Fast API flow intact. Do not change endpoint constants, HMAC signing behavior, delete-before-create behavior, or domain allowlist logic unless the user explicitly asks and understands the risk.
+   - Keep the verified Fast API flow intact. Do not change endpoint constants, HMAC signing behavior, delete-before-create behavior, domain allowlist logic, or the server-side OAuth `state` CSRF check (validated in `/api/connect` against the httpOnly `oauth_state` cookie) unless the user explicitly asks and understands the risk. Never weaken `state` to a frontend-only check.
+   - Artifact: `backend/okx_client.py` and `backend/app.py`, both **adapted**.
+     The production code carries no mock switch: order-producing calls always hit
+     the real OKX endpoints. Automated tests stub `okx_client` at the test layer
+     (`monkeypatch` in `tests/test_flow.py`), so there is no in-code fake-order
+     path to strip. A production build must never reintroduce one.
+
+Full decision tree: `docs/USER_TYPES.md`. It is the authoritative routing table;
+`README.md` and this file point to it.
 
 ## Naming Rules
 
 - The product-facing name is **AI Builder Code**.
 - Use `AI_BUILDER_CODE` only where server code reads environment configuration.
-- Type 1 OpenAPI scripts use `--ai-builder-code` on order-producing commands.
+- `openapi-user` OpenAPI scripts use `--ai-builder-code` on order-producing commands.
 - OKX order requests still use the field name `tag`; set its value to AI Builder Code.
 - The demo may expose `ai_builder_code` in JSON responses such as `/config`.
   Do not use it as a repo config name or OKX request field.
-- Type 2 OKX backends may expose the argument as `--aiBuilderCode` or `aiBuilderCode`; preserve the backend schema instead of renaming it.
+- `cli-user` and `mcp-user` OKX backends may expose the argument as `--aiBuilderCode` or `aiBuilderCode`; preserve the backend schema instead of renaming it.
 - Use one public attribution concept in this repo: AI Builder Code. Preserve
   OKX protocol fields and backend argument names only where this document lists
   them.
@@ -47,12 +75,13 @@ You are helping users integrate OKX AI Builder. First identify the user's type, 
 
 ## Security Rules
 
+- OAuth CSRF `state` must be validated server-side (bound to the user's session), single-use, and expiring. A frontend-only `state` check is bypassable and must not be relied on. Never log any part of the authorization `code` (it is exchangeable for a token); `state` is not a bearer secret but avoid logging it in production.
 - Never put `client_secret`, `secretKey`, or `passphrase` in frontend code, logs, or committed files.
 - Real `.env` files are local only and must not be committed.
 - Keep `.env.example` files only for demos that actually read environment configuration.
 - The `.env` files created from these examples are for demo use and contain sensitive fields; production integrations should use a secret manager or equivalent protected storage.
-- Type 1 OpenAPI and Type 2 CLI/MCP do not use a demo `.env` for AI Builder Code; pass AI Builder Code through the selected command flag or tool argument.
-- Default to simulated trading. Use mock mode only for local non-OAuth checks or when explicitly requested.
+- `openapi-user` OpenAPI and `cli-user`/`mcp-user` do not use a demo `.env` for AI Builder Code; pass AI Builder Code through the selected command flag or tool argument.
+- Default to simulated trading. `SIMULATED=1` sets the OKX `x-simulated-trading` header — a real OKX call to the demo trading environment, not a mock. There is no mock mode in this demo's production code.
 
 ## Documentation Rules
 
@@ -71,3 +100,7 @@ You are helping users integrate OKX AI Builder. First identify the user's type, 
   OpenAPI, AI Builder, Agent Trade Kit, or source repository links.
 - Keep runtime URLs in the workflow document that uses them, such as OAuth SDK
   CDN URLs, OKX API domains, callback examples, or localhost examples.
+- The rules in this file govern work done **inside this repo**. For the
+  cross-surface general rules that also apply outside it, the canonical source
+  is the `okx-ai-builder-integration` skill; see `docs/REFERENCE_LINKS.md`. Do
+  not copy this file into a user's project.

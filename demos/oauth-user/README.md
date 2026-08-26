@@ -1,6 +1,6 @@
-# Third-party server + OKX Fast API demo
+# oauth-user demo
 
-This demo is for **type 3** users: a third-party service runs trading logic on its own server for end users. It uses OKX OAuth Broker + Fast API to create and store a long-lived API Key for each authorized user.
+This demo is for **oauth-user** users: a third-party service runs trading logic on its own server for end users. It uses OKX OAuth Broker + Fast API to create and store a long-lived API Key for each authorized user.
 
 Here **Fast API** means the OKX Fast API product capability, not the Python FastAPI web framework. The reference backend is a small Flask app.
 
@@ -12,7 +12,7 @@ as the source of truth before changing the site.
 
 Before migrating this demo into another project, read [PITFALLS.md](PITFALLS.md) for the high-frequency integration issues and error-code checks.
 
-## What This Demo Shows
+## What this demo shows
 
 - Frontend authorization with OKX Web SDK and `scope=fast_api`
 - Callback `state` validation and `domain` allowlist handling
@@ -22,7 +22,20 @@ Before migrating this demo into another project, read [PITFALLS.md](PITFALLS.md)
 - Spot/swap open-close demo workflows
 - AI Builder Code injection into OKX order `tag`
 
-## Run
+Boundary — what it does **not** show:
+
+- No durable storage. Created Fast API Keys live in backend process memory only.
+- No user accounts, sessions, authentication, or multi-tenancy beyond one local
+  demo browser session.
+- Linear swap instruments only. Inverse USD swap instruments such as
+  `BTC-USD-SWAP` fail before order placement.
+- If the operator trades only their **own** OKX account — even from their own
+  server — this is the wrong path. Use [../openapi-user](../openapi-user),
+  [../cli-user](../cli-user), or [../mcp-user](../mcp-user).
+
+## How to use
+
+### Run
 
 Requires Python 3.10 or newer. The commands below assume `python3` points to
 Python 3.10+. Check your Python version before creating the local environment:
@@ -39,7 +52,7 @@ other local Python projects.
 From the repo root:
 
 ```bash
-cd demos/third-party-fastapi
+cd demos/oauth-user
 test -f .env || cp .env.example .env
 # Edit .env with OAuth Broker credentials and APIKEY_PASSPHRASE.
 test -d .tmpvenv || python3 -m venv .tmpvenv
@@ -70,12 +83,13 @@ Optional cleanup for the local demo environment you created in this folder:
 rm -rf .tmpvenv
 ```
 
-## Configuration
+### Configuration
 
 Read [.env.example](.env.example) first. It intentionally lives in the repo so the user's AI assistant can understand which values are required.
 
-`CLIENT_ID` and `CLIENT_SECRET` are issued by OKX after OAuth Broker approval
-(Fast API permission + IP allowlist); use the values OKX sent you.
+You configure OAuth & Fast API in the AI Builder workbench
+(`https://www.okx.com/agent-tradekit/builder` → Settings); after you confirm your
+email, OKX sends `CLIENT_ID` and `CLIENT_SECRET` to you **by email**.
 
 Local configuration secrets must go only into `.env` or a real secrets manager:
 
@@ -86,18 +100,7 @@ Local configuration secrets must go only into `.env` or a real secrets manager:
 `AI_BUILDER_CODE` is assigned by OKX when you register as an AI Builder; use the
 value you were given and do not make one up. It is 1-16 alphanumeric characters.
 
-## Fast API Key Storage
-
-This demo intentionally stores the created Fast API Key only in backend process
-memory, keyed by the local demo browser session. Restarting the backend clears
-the demo session and requires connecting again.
-
-In a real implementation, store each user's created `apiKey`, `secretKey`, and
-`passphrase` on the backend so the service can place future orders for that user
-after authorization. Treat these values as customer-sensitive credentials:
-protect them from frontend exposure, logs, analytics, crash reports, and git.
-
-## AI Builder Code Scope
+### AI Builder Code scope
 
 This demo injects `AI_BUILDER_CODE` into the OKX `tag` field for its order
 examples:
@@ -118,7 +121,7 @@ and request schemas in the OpenAPI Markdown docs first.
 
 The demo creates Fast API Keys with `bindApp=true`, matching the backend code. This requires the Broker IP allowlist to be enabled by OKX.
 
-## Verified Endpoints
+### Verified endpoints
 
 | Purpose | Method | Path |
 |---|---|---|
@@ -131,7 +134,7 @@ The demo creates Fast API Keys with `bindApp=true`, matching the backend code. T
 
 Do not change the token path; the demo uses the path verified in real integration.
 
-## Demo Order Workflows
+### Demo order workflows
 
 After connecting OKX, the page exposes `Fill Demo Fields` plus four order
 workflow actions. `Fill Demo Fields` is read-only. The four order workflow
@@ -200,10 +203,10 @@ For swap close, use the margin mode and position side of the position being
 closed. In `net_mode`, send `posSide=net` or omit `posSide`; the backend omits
 the OKX `posSide` request field.
 
-## Files
+### Files
 
 ```text
-demos/third-party-fastapi/
+demos/oauth-user/
 +-- README.md
 +-- .env.example
 +-- INTEGRATION_GUIDE.md
@@ -219,10 +222,10 @@ demos/third-party-fastapi/
 +-- tests/
 ```
 
-## Tests
+### Tests
 
 ```bash
-cd demos/third-party-fastapi
+cd demos/oauth-user
 test -d .tmpvenv || python3 -m venv .tmpvenv
 source .tmpvenv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -231,4 +234,79 @@ node tests/verify_frontend_workflow_state.js
 node tests/verify_js_sign.js
 ```
 
+The two `node` checks are frontend/signing test scaffolding and need Node.js
+(18+ recommended). Running the demo itself (`python backend/app.py`) does not
+need Node. (Your own production stack is independent of this demo's tooling.)
+
 See [TESTING.md](TESTING.md) for local automated tests and real integration checks, and [PITFALLS.md](PITFALLS.md) for migration pitfalls and error-code checks.
+
+## Copy vs Adapt
+
+Every file in this folder falls into exactly one bucket.
+
+| File | Bucket | Notes |
+|---|---|---|
+| `backend/okx_client.py` | **Adapt** | The OAuth + Fast API + signing helpers are the valuable part. This is plain production code with no test switches: each function builds the headers/body and makes the real `requests` call. Reuse the signing helpers as-is and adapt the request wrappers to your stack. Keep `_sign` and `_now_iso_ms` behaviour byte-for-byte. (Automated tests stub these functions at the test layer with `monkeypatch`; there is nothing to strip here.) |
+| `backend/app.py` | **Adapt** | Example Flask routes and the demo workflow orchestration. Keep the verified pieces (domain allowlist, delete-before-create, **server-side OAuth `state` validation** in `/api/connect`) and the AI Builder Code gate; replace process-memory session storage, route shapes, and workflow bodies with your own. Do not remove or weaken the `state` check (see "For real integration"). |
+| `frontend/index.html` | **Adapt** | Example single-page UI and OKX Web SDK wiring. Reuse the authorization call shape and `state` handling; rebuild the UI in your own stack. Never move `client_secret`, `secretKey`, or `passphrase` into it. The live-order confirm guard is gated only on `!CONFIG.simulated`; keep an equivalent live-trading confirmation in your own UI. |
+| `tests/test_sign.py` | **Scaffolding (file) — but copy the signing vectors** | Do not copy the test harness wholesale, but **do copy its known-answer signing vectors and prehash-order assertions** into your own signing regression test — they are the regression net on the signing code you adapt. |
+| `tests/test_flow.py` | **Demo scaffolding — do NOT copy** | Flask-test-client flow tests. They stub the `okx_client` functions with `monkeypatch` at the test layer; the production code carries no mock switch. |
+| `tests/conftest.py` | **Demo scaffolding — do NOT copy** | Wires `sys.path` to this demo's `backend/` directory. |
+| `tests/verify_js_sign.js` | **Demo scaffolding — do NOT copy** | Reference only: checks the Node.js snippet in `SIGNING.md` against the Python vectors. |
+| `tests/verify_frontend_workflow_state.js` | **Demo scaffolding — do NOT copy** | Reference only: asserts the demo page's button-enable state machine. |
+| `requirements.txt`, `requirements-dev.txt` | **Demo scaffolding — do NOT copy** | Demo pins. Use your own project's dependency management. |
+| `.env.example` | **Demo scaffolding — do NOT copy** | Shows which configuration fields the demo needs. Production integrations must use a secret manager. |
+| `AGENTS.md` | **Demo scaffolding — do NOT copy** | Rules for AI assistants working **inside this repo**. Do not copy it into a user project. |
+| `README.md`, `INTEGRATION_GUIDE.md`, `PITFALLS.md`, `SIGNING.md`, `TESTING.md` | **Demo scaffolding — do NOT copy** | Read them, do not vendor them. `PITFALLS.md` and `INTEGRATION_GUIDE.md` are required reading before you adapt the code. |
+
+## For real integration
+
+This demo is a verified simple example, not a production system. Before it
+becomes real code:
+
+- **Keep the server-side OAuth `state` check.** This demo validates the CSRF
+  `state` **server-side**: `/config` mints it, binds it to an httpOnly
+  `oauth_state` cookie, and `/api/connect` verifies the echoed `state` against
+  that cookie (via `secrets.compare_digest`) **before** the token exchange, then
+  consumes it (single-use). The frontend `localStorage` check is only
+  defense-in-depth. When you adapt this: keep state server-side, bind it to the
+  user's session, keep it single-use + expiring, and keep the negative tests
+  (missing / mismatched / replayed). **Do not** weaken it to a frontend-only
+  check — that is bypassable by posting to the token endpoint directly.
+  Production hardening beyond this demo: make the cookie tamper-evident (a signed
+  Flask session or `state = HMAC(server_secret, nonce)`, so a cookie an attacker
+  wrote on a sibling origin can't be adopted), and on HTTPS use a `Secure` +
+  `__Host-` cookie prefix.
+- **No fake-order-acceptance paths.** The production code in this demo has no
+  mock switch: order-producing calls always hit the real OKX endpoints, and the
+  automated tests stub `okx_client` at the test layer (`monkeypatch`) instead of
+  through any in-code flag. Keep it that way — a production build must never carry
+  a code path that fakes order acceptance or suppresses the live-trading
+  confirmation.
+- **Fast API Key storage.** This demo intentionally stores the created Fast API
+  Key only in backend process memory, keyed by the local demo browser session.
+  Restarting the backend clears the demo session and requires connecting again.
+  In a real implementation, store each user's created `apiKey`, `secretKey`, and
+  `passphrase` on the backend so the service can place future orders for that
+  user after authorization. Treat these values as customer-sensitive
+  credentials: store them **encrypted and isolated per user**, and keep them out
+  of frontend code, prompts, logs, analytics, crash reports, and git.
+- **Keep the verified flow intact.** Do not change the token path, the
+  delete-before-create sequence, the HMAC signing behaviour, or the domain
+  allowlist logic unless you understand the consequence.
+- **Keep the safe defaults deliberate.** `SIMULATED=1` and
+  `APIKEY_PERM=read_only` are the defaults; moving to live trading and `trade`
+  permission is an explicit decision, per authorized user.
+- **Keep attribution mandatory.** Order-producing endpoints must require
+  `AI_BUILDER_CODE` and send it as OKX request field `tag`. Stop order writes if
+  the code is missing. Do not rename the OKX `tag` field.
+- **Add what a demo omits**: per-user isolation, durable encrypted storage, key
+  rotation, error-code handling, rate limits, retries and idempotency,
+  reconciliation, and audit logging.
+- **This demo is validated for OKX Global.** For another OKX site, check
+  endpoint availability and request schemas first — see
+  [../../docs/REFERENCE_LINKS.md](../../docs/REFERENCE_LINKS.md).
+
+Deeper caveats: [PITFALLS.md](PITFALLS.md), [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md),
+[SIGNING.md](SIGNING.md), [TESTING.md](TESTING.md).
+User type decision tree: [../../docs/USER_TYPES.md](../../docs/USER_TYPES.md).
