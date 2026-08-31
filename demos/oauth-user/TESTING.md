@@ -1,7 +1,8 @@
 # Third-party Fast API Testing Guide
 
-This demo has two test layers: local automated checks without Broker
-credentials, and real integration with a test Broker.
+This demo has two test layers: local automated checks without OAuth
+credentials, and real integration with your workbench-configured OAuth & Fast
+API app.
 
 The real integration checklist is written for the OKX Global site. For another
 OKX site, check endpoint availability and request schemas in the OpenAPI
@@ -9,22 +10,30 @@ Markdown docs before adapting the checklist.
 User-facing validation should use real OKX OAuth/Fast API integration with
 `SIMULATED=1`; local canned responses are only for automated tests.
 
-- (a) Local automated tests: no network; verify signing, backend routes, frontend
-  workflow state, and canned OKX-like responses through pytest and Node checks.
-- (b) Real integration checklist: after receiving test Broker credentials,
-  validate the simulated trading flow step by step. Integration pitfalls and
-  error codes are centralized in [PITFALLS.md](PITFALLS.md).
+- (a) Local automated tests: no network; verify signing, backend routes, and
+  frontend workflow state through pytest and Node checks. External OKX calls are
+  stubbed at the test layer, so no real credentials or endpoints are involved.
+- (b) Real integration checklist: once your OAuth & Fast API app is configured in
+  the AI Builder workbench and you have the **emailed** `client_id`/`client_secret`
+  in hand, validate the simulated trading flow step by step. Integration pitfalls
+  and error codes are centralized in [PITFALLS.md](PITFALLS.md).
 
-Security note: automated tests do not use real secrets. `mock-secret` is a
-placeholder string, not a credential. `secretKey` and `passphrase` must never
-appear in frontend responses, logs, or git.
+Security note: automated tests do not use real secrets. The placeholder secret
+strings in the tests (`test-secret` in the flow tests, `mock-secret` in the
+signing known-answer vectors) are not credentials. `secretKey` and `passphrase`
+must never appear in frontend responses, logs, or git.
 
 ## A. Local Automated Tests
+
+The frontend/signing checks below run on Node.js (18+ recommended). Node is only
+scaffolding for maintaining/verifying this demo — running the demo itself
+(`python backend/app.py`) does not need Node. (Your own production stack is
+independent of this demo's tooling.)
 
 Install dev dependencies and run:
 
 ```bash
-cd demos/third-party-fastapi
+cd demos/oauth-user
 test -d .tmpvenv || python3 -m venv .tmpvenv
 source .tmpvenv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -43,11 +52,13 @@ What the tests cover:
   - GET with query signs a path containing `?ccy=...`, so its signature differs from the no-query path.
   - Signature is valid `base64(HMAC-SHA256)` and decodes to 32 bytes.
   - `_now_iso_ms` returns ISO8601 UTC with 3-digit milliseconds and a trailing `Z`.
-- `tests/test_mock_flow.py`
+- `tests/test_flow.py`
   - Uses Flask test client for `/api/connect`, `/api/balance`, `/api/order`,
     and the demo workflow routes.
   - Asserts `ok=True`, masked `apiKey`, AI Builder Code echoed as OKX `tag`,
-    and no leaked `secretKey` or `passphrase`.
+    and no leaked `secretKey`, `passphrase`, or `client_secret`.
+  - Covers the OAuth `state` CSRF negative cases (missing / mismatched /
+    replayed), which a production adaptation must keep.
 - `tests/verify_frontend_workflow_state.js`
   - Loads the frontend script with a minimal DOM mock.
   - Verifies `Fill Demo Fields` enables only available workflow buttons,
@@ -73,8 +84,8 @@ This only proves the language snippets are algorithmically equivalent. The Pytho
 
 Prerequisites:
 
-- BD has provided `client_id` and `client_secret`.
-- Fast API permission and Broker IP allowlist are enabled.
+- `client_id` and `client_secret` emailed to you after you confirm your email (OAuth & Fast API configured in the workbench Settings).
+- Fast API is enabled for your app, with the OAuth-exempt and user IP allowlists configured.
 - `redirect_uri` is registered in the OKX whitelist.
 - Start with simulated trading: `SIMULATED=1`.
 
@@ -100,7 +111,7 @@ set `AI_BUILDER_CODE=<AI_BUILDER_CODE>` before order workflow tests. Keep
 ### TC-1: OAuth Connect
 
 1. [ ] Authorization page opens and shows Fast API permission. If not, check `scope=fast_api`.
-2. [ ] Callback returns with `code`; the UI logs `Detected OAuth callback: code=...`.
+2. [ ] Callback returns with `code`; the UI logs `Detected OAuth callback: code received (hidden)` — it must NOT log any part of the code.
 3. [ ] State validation passes; no `state validation failed` message appears.
 4. [ ] Token exchange succeeds; `/api/connect` has no `step=exchange_token` error.
 5. [ ] Delete old key is accepted; `code=0` or `59506` are both valid.

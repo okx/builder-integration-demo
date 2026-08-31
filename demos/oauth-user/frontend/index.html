@@ -173,7 +173,7 @@ function invalidateDemoFields() {
 async function init() {
   // 1. Read public backend config for authorization.
   CONFIG = await (await fetch('/config')).json();
-  document.getElementById('mode').textContent = (CONFIG.mock ? 'MOCK - ' : '') + (CONFIG.simulated ? 'simulated' : 'live');
+  document.getElementById('mode').textContent = (CONFIG.simulated ? 'simulated' : 'live');
   log(`Config loaded: client_id=${CONFIG.client_id || '(missing)'} scope=${CONFIG.scope}`);
   const tagEl = document.getElementById('ord-tag');
   if (tagEl) tagEl.textContent = CONFIG.ai_builder_code || '(missing AI_BUILDER_CODE: auth and balance checks only)';
@@ -193,7 +193,7 @@ async function init() {
     const state = params.get('state');
     const domain = params.get('domain');
     const savedState = localStorage.getItem('oauth_state');
-    log(`Detected OAuth callback: code=${code.slice(0, 8)}... state=${state} domain=${domain || '(default)'}`);
+    log(`Detected OAuth callback: code received (hidden) state=${state} domain=${domain || '(default)'}`);
 
     // CSRF protection: callback state must match the stored outbound state.
     if (!savedState || savedState !== state) {
@@ -203,16 +203,18 @@ async function init() {
     }
     localStorage.removeItem('oauth_state');
     history.replaceState({}, '', location.pathname);
-    await runConnect(code, domain);
+    // Forward state to the backend, which does the authoritative CSRF check
+    // against its httpOnly cookie (this frontend check is defense-in-depth only).
+    await runConnect(code, domain, state);
   }
 }
 
-async function runConnect(code, domain) {
+async function runConnect(code, domain, state) {
   resetConnectedState();
   log('-> Calling backend /api/connect to create API Key');
   const res = await (await fetch('/api/connect', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, domain }),
+    body: JSON.stringify({ code, domain, state }),
   })).json();
   show('connect-result', res);
   if (res.ok) {
@@ -243,15 +245,21 @@ async function runConnect(code, domain) {
   }
 }
 
-document.getElementById('btn-auth').addEventListener('click', () => {
-  // Test-only path has no real OAuth callback.
-  if (CONFIG.mock) {
-    log('Test-only path: skipping real authorization and connecting with fake code');
-    runConnect('mock-code', null);
-    return;
+document.getElementById('btn-auth').addEventListener('click', async () => {
+  // Refresh config at the START of each authorize so `state` is fresh and matches
+  // the httpOnly cookie: a prior successful connect consumes (deletes) the cookie,
+  // so the page-load `CONFIG.state` would be stale and the backend would reject a
+  // second connect. /config re-mints when the cookie is gone.
+  try {
+    CONFIG = await (await fetch('/config')).json();
+  } catch (e) {
+    return log('[error] failed to refresh config before authorize: ' + e);
   }
   if (!window.OKEXOAuthSDK) return log('SDK is not loaded');
-  const state = OKEXOAuthSDK.generateState();
+  // Use the server-minted state (bound to the httpOnly oauth_state cookie by
+  // /config) so the backend can verify it; fall back to a client value only if
+  // /config did not provide one.
+  const state = CONFIG.state || OKEXOAuthSDK.generateState();
   // localStorage survives refreshes and cross-tab callback behavior better than sessionStorage.
   localStorage.setItem('oauth_state', state);
   log(`Starting authorization: state=${state}`);
@@ -361,7 +369,7 @@ async function runWorkflow(path, label, kind) {
   } catch (err) {
     return log(`[error] ${err.message}`);
   }
-  if (!CONFIG.simulated && !CONFIG.mock) {
+  if (!CONFIG.simulated) {
     if (!confirm(`Live trading uses real funds. Confirm ${label}?`)) {
       return log(`${label} cancelled`);
     }

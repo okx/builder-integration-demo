@@ -1,6 +1,6 @@
 # Fast API Pitfalls And Error Checks
 
-This is the short Type 3 troubleshooting entry for AI assistants. Read it before changing OAuth, Fast API Key creation, signing, or order placement code.
+This is the short `oauth-user` troubleshooting entry for AI assistants. Read it before changing OAuth, Fast API Key creation, signing, or order placement code.
 
 This demo has already passed real integration. Treat these notes as guardrails when migrating it into another project.
 
@@ -56,10 +56,10 @@ This demo has already passed real integration. Treat these notes as guardrails w
 | Code | Meaning | What to do |
 |---|---|---|
 | 50116 | Fast API can create only one API Key | Delete the old key first; this demo already does that. |
-| 50117 | Only API Brokers can create Fast API Keys | Confirm Fast API permission with BD. |
+| 50117 | Only API Brokers can create Fast API Keys | Confirm Fast API is enabled for your app in the AI Builder workbench (Settings → Fast API). |
 | 50118 | Bound API Key requires Broker IP allowlist | Enable the IP allowlist, then create with `bindApp=true`. |
 | 59506 | API Key does not exist | Treat as normal during delete-before-create and continue. |
-| 53018 | Site authorization is missing for `my.okx.com` | Ask BD to enable the required site authorization. |
+| 53018 | Site authorization is missing for `my.okx.com` | Ask your OKX BD contact to enable the site authorization (a separate channel from the `client_id`/`client_secret` email). |
 
 ## Quick Checks By Symptom
 

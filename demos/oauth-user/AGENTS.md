@@ -1,14 +1,14 @@
-# AGENTS.md - Type 3 Fast API rules for AI assistants
+# AGENTS.md - oauth-user Fast API rules for AI assistants
 
 You are helping a user integrate **OKX Fast API** into a third-party service. The service creates and stores long-lived Fast API Keys for end users, then calls OKX OpenAPI on behalf of those users.
 
 Fast API here means the OKX product capability, not the Python FastAPI framework. This repo is a reference implementation. Read `INTEGRATION_GUIDE.md` first; use `backend/` and `frontend/` as code references.
 
-If the user is trading only their own OKX account, even from their own server, do not use this folder. Go back to `../../docs/USER_TYPES.md` and choose Type 1 or Type 2.
+If the user is trading only their own OKX account, even from their own server, do not use this folder. Go back to `../../docs/USER_TYPES.md` and choose `openapi-user`, `cli-user`, or `mcp-user`.
 
 ## Hard Rules
 
-1. Never put `client_secret`, created `apiKey`, created `secretKey`, or `passphrase` in frontend code, mobile code, logs, analytics, crash reports, or git. They are backend-only customer-sensitive credentials.
+1. Never put `client_secret`, created `apiKey`, created `secretKey`, or `passphrase` in frontend code, mobile code, **prompts**, logs, analytics, crash reports, or git. They are backend-only customer-sensitive credentials; store them on the backend **encrypted and isolated per user**.
 2. Do not invent endpoints. Use the demo README's AI Builder Code Scope for attribution scope, and use `INTEGRATION_GUIDE.md` for Fast API flow paths and parameters. If uncertain, ask the user to confirm the relevant OKX docs.
 3. Fast API supports authorization code mode only: `access_type=offline`, `scope=fast_api`. Do not implement Fast API with PKCE.
 4. Delete the old Fast API Key before creating a new one. Error `59506` means the key does not exist; ignore it and continue.
@@ -21,9 +21,9 @@ If the user is trading only their own OKX account, even from their own server, d
 ## Standard Integration Steps
 
 1. Confirm prerequisites: `client_id`, `client_secret`, Fast API permission, IP allowlist, and whitelisted `redirect_uri`.
-2. Frontend: load OKX Web SDK, call `init`, generate and store `state`, then call `authorize({scope:'fast_api', access_type:'offline', ...})`.
-3. Callback page: validate `state`, then send `code` and optional `domain` to the backend.
-4. Backend: exchange token, delete old key, create new key. Keep process-memory storage for this demo; use protected backend storage in a real implementation.
+2. Frontend: load OKX Web SDK, call `init`, get the **server-minted `state`** from `/config` (bound to an httpOnly `oauth_state` cookie; re-fetch it right before authorizing so it is fresh), then call `authorize({scope:'fast_api', access_type:'offline', state, ...})`.
+3. Callback page: send `code`, `state`, and optional `domain` to the backend. (A frontend `state` check is fine as defense-in-depth but is NOT the security boundary.)
+4. Backend: **validate `state` against the `oauth_state` cookie BEFORE the token exchange** (reject on mismatch/missing; the demo uses `secrets.compare_digest`, then consumes the cookie), then exchange token, delete old key, create new key. Keep process-memory storage for this demo; use protected backend storage in a real implementation.
 5. Business calls: use the created API Key with OKX HMAC signing. The demo examples are `GET /api/v5/account/balance`, `POST /api/v5/trade/order`, and `POST /api/v5/trade/close-position`.
 
 ## Pitfalls To Check First

@@ -1,7 +1,7 @@
 # OKX API Key Signing Snippets
 
 > After you create a Fast API Key (`apiKey`, `secretKey`, `passphrase`), private OKX business API calls use standard OKX HMAC signing.
-> This file is the Type 3 demo's copyable snippet appendix. The canonical signing rules live in [../../docs/OPENAPI_SIGNING.md](../../docs/OPENAPI_SIGNING.md), the integration flow lives in [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md), and the runnable Python implementation is `backend/okx_client.py`.
+> This file is the `oauth-user` demo's copyable snippet appendix. The canonical signing rules live in [../../docs/OPENAPI_SIGNING.md](../../docs/OPENAPI_SIGNING.md), the integration flow lives in [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md), and the runnable Python implementation is `backend/okx_client.py`.
 
 ## Signing Rule
 
