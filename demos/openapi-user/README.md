@@ -46,7 +46,7 @@ source .tmpvenv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Fill the demo trading credentials in `.env`:
+Create a **demo trading** API key at `https://www.okx.com/account/my-api?go-demo-trading=1` (demo-trading keys are separate from live keys), then fill the demo trading credentials in `.env`:
 
 ```env
 OKX_PROFILE=demo
