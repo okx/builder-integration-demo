@@ -67,6 +67,8 @@ python strategy_demo.py swap-close --inst-id BTC-USDT-SWAP --mgn-mode cross --ai
 
 `OKX_PROFILE=demo` sends real OKX demo trading requests and automatically adds `x-simulated-trading: 1`, so it does not trade with real funds.
 
+Demo trading uses the **same host as live** (`https://www.okx.com` by default; override via `OKX_SITE` / `OKX_API_BASE_URL`), switched only by the `x-simulated-trading: 1` header — there is no separate "simulated host". OKX also documents the Global REST host as `openapi.okx.com`; both work for Global. Change the base host only for your registered site (e.g. US/AU → `us.okx.com`, EU → `eea.okx.com`; supported sites are selected via `OKX_SITE`), not because a docs page shows a different host.
+
 ### Demo order workflows
 
 The four workflow commands use public ticker and instrument rules before
@@ -83,8 +85,12 @@ price or size values.
 Each order-producing workflow requires `--ai-builder-code` and sends that value
 as OKX request field `tag`. The command output includes `preflight`,
 `sent_order`, and the raw OKX response so a user or AI assistant can inspect
-what was sent. The script does not read AI Builder Code from environment
-variables.
+what was sent. The demo passes the AI Builder Code as an explicit
+`--ai-builder-code` argument rather than reading it from an environment variable,
+because an env var can be overridden by the deployment environment and silently
+attribute orders to the wrong value. When you adapt this you may source the value
+however you like (hard-coded, config, or env), but a missing or invalid value
+must fail loudly — never default silently.
 For spot workflows, `--quote-amount` is denominated in the instrument quote
 currency: `BTC-USDT` uses USDT, while another spot pair uses that pair's quote
 currency for sizing and balance checks. Spot preflight output includes
